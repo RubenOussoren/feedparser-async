@@ -6,7 +6,7 @@ import hashlib
 import logging
 import re
 from datetime import datetime, timedelta, timezone
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING, Any, TypedDict
 
 import feedparser  # type: ignore[import]
 import homeassistant.helpers.config_validation as cv
@@ -186,6 +186,11 @@ class FeedParserSensor(CoordinatorEntity[FeedParserCoordinator], SensorEntity):
         self._scan_interval = scan_interval
         self._local_time = local_time
         self._entries: list[FeedEntryDict] = []
+        self._feed_title: str | None = None
+        self._feed_link: str | None = None
+        self._feed_image: str | None = None
+        self._feed_description: str | None = None
+        self._last_entry_date: str | None = None
         self._attr_extra_state_attributes = {"entries": self._entries}
         self._attr_attribution = "Data retrieved using RSS feedparser"
         self._coordinator = coordinator
@@ -225,15 +230,37 @@ class FeedParserSensor(CoordinatorEntity[FeedParserCoordinator], SensorEntity):
         if not self.coordinator.data:
             self._attr_native_value = None
             self._entries.clear()
+            self._feed_title = None
+            self._feed_link = None
+            self._feed_image = None
+            self._feed_description = None
+            self._last_entry_date = None
             self.async_write_ha_state()
             return
 
         data: FeedParserData = self.coordinator.data
         valid_entries = data.valid_entries
 
+        # Extract feed metadata
+        feed_info = data.feed.feed if hasattr(data.feed, 'feed') else {}
+        self._feed_title = feed_info.get('title', self.name)
+        self._feed_link = feed_info.get('link', self._feed)
+        self._feed_description = feed_info.get('subtitle') or feed_info.get('description', '')
+        
+        # Try to get feed image
+        if 'image' in feed_info:
+            img = feed_info['image']
+            if isinstance(img, dict):
+                self._feed_image = img.get('href') or img.get('url', '')
+            else:
+                self._feed_image = str(img) if img else None
+        else:
+            self._feed_image = None
+
         if not valid_entries:
             self._attr_native_value = None
             self._entries.clear()
+            self._last_entry_date = None
             self.async_write_ha_state()
             return
 
@@ -250,6 +277,14 @@ class FeedParserSensor(CoordinatorEntity[FeedParserCoordinator], SensorEntity):
         self._entries.extend(
             self._generate_entries(valid_entries[:entry_count])
         )
+        
+        # Get the date of the most recent entry
+        if self._entries and self._entries[0].get('published'):
+            self._last_entry_date = self._entries[0].get('published')
+        elif self._entries and self._entries[0].get('updated'):
+            self._last_entry_date = self._entries[0].get('updated')
+        else:
+            self._last_entry_date = None
 
         _LOGGER.debug(
             "Feed %s: Sensor state updated - %s entries",
@@ -572,6 +607,23 @@ class FeedParserSensor(CoordinatorEntity[FeedParserCoordinator], SensorEntity):
         self._local_time = value
 
     @property
-    def extra_state_attributes(self: FeedParserSensor) -> dict[str, list[FeedEntryDict]]:
+    def entity_picture(self: FeedParserSensor) -> str | None:
+        """Return the feed image as entity picture."""
+        return self._feed_image
+
+    @property
+    def extra_state_attributes(self: FeedParserSensor) -> dict[str, Any]:
         """Return entity specific state attributes."""
-        return {"entries": self.feed_entries}
+        attrs: dict[str, Any] = {
+            "entries": self.feed_entries,
+            "feed_url": self._feed,
+        }
+        if self._feed_title:
+            attrs["feed_title"] = self._feed_title
+        if self._feed_link:
+            attrs["feed_link"] = self._feed_link
+        if self._feed_description:
+            attrs["feed_description"] = self._feed_description
+        if self._last_entry_date:
+            attrs["last_entry_date"] = self._last_entry_date
+        return attrs

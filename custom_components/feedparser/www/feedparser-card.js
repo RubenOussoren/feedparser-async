@@ -42,10 +42,20 @@ class FeedParserCard extends HTMLElement {
     const showImages = this.config.show_images !== false;
     const showSummary = this.config.show_summary !== false;
     const showDate = this.config.show_date !== false;
+    const compactMode = this.config.compact === true;
+    const showRefresh = this.config.show_refresh !== false;
+    const feedTitle = stateObj.attributes.feed_title || stateObj.attributes.friendly_name || 'Feed';
+    const feedLink = stateObj.attributes.feed_link || '#';
+    const lastEntryDate = stateObj.attributes.last_entry_date || '';
 
     let entriesHtml = '';
     if (entries.length === 0) {
-      entriesHtml = '<div class="no-entries">No entries available</div>';
+      entriesHtml = `
+        <div class="no-entries">
+          <ha-icon icon="mdi:rss-off"></ha-icon>
+          <span>No entries available</span>
+        </div>
+      `;
     } else {
       entries.slice(0, maxEntries).forEach((entry, index) => {
         const title = entry.title || 'Untitled';
@@ -55,45 +65,97 @@ class FeedParserCard extends HTMLElement {
         const published = entry.published || entry.updated || '';
         const author = entry.author || '';
 
-        entriesHtml += `
-          <div class="feed-entry ${index === 0 ? 'first-entry' : ''}">
-            ${showImages && image ? `
-              <div class="entry-image">
-                <img src="${image}" alt="${title}" onerror="this.style.display='none'">
-              </div>
-            ` : ''}
-            <div class="entry-content">
-              <div class="entry-header">
+        if (compactMode) {
+          entriesHtml += `
+            <div class="feed-entry compact ${index === 0 ? 'first-entry' : ''}">
+              <div class="entry-content">
                 <a href="${link}" target="_blank" rel="noopener noreferrer" class="entry-title">
                   ${title}
                 </a>
-                ${showDate && published ? `
-                  <div class="entry-date">${published}</div>
-                ` : ''}
-                ${author ? `
-                  <div class="entry-author">${author}</div>
+                ${showDate && published ? `<span class="entry-date-inline">${published}</span>` : ''}
+              </div>
+            </div>
+          `;
+        } else {
+          entriesHtml += `
+            <div class="feed-entry ${index === 0 ? 'first-entry' : ''}">
+              ${showImages && image ? `
+                <div class="entry-image">
+                  <img src="${image}" alt="" loading="lazy" onerror="this.parentElement.style.display='none'">
+                </div>
+              ` : ''}
+              <div class="entry-content">
+                <div class="entry-header">
+                  <a href="${link}" target="_blank" rel="noopener noreferrer" class="entry-title">
+                    ${title}
+                  </a>
+                  <div class="entry-meta">
+                    ${showDate && published ? `<span class="entry-date">${published}</span>` : ''}
+                    ${author ? `<span class="entry-author">by ${author}</span>` : ''}
+                  </div>
+                </div>
+                ${showSummary && summary ? `
+                  <div class="entry-summary">${this.stripHtml(summary)}</div>
                 ` : ''}
               </div>
-              ${showSummary && summary ? `
-                <div class="entry-summary">${this.stripHtml(summary)}</div>
-              ` : ''}
             </div>
-          </div>
-        `;
+          `;
+        }
       });
     }
 
+    const headerHtml = `
+      <div class="card-header">
+        <div class="header-left">
+          <ha-icon icon="mdi:rss" class="feed-icon"></ha-icon>
+          <div class="header-text">
+            <a href="${feedLink}" target="_blank" rel="noopener noreferrer" class="card-title">
+              ${this.config.title || feedTitle}
+            </a>
+            ${lastEntryDate ? `<div class="last-updated">Latest: ${lastEntryDate}</div>` : ''}
+          </div>
+        </div>
+        <div class="header-right">
+          <div class="card-count">${stateObj.state}</div>
+          ${showRefresh ? `
+            <ha-icon-button class="refresh-btn" @click="${() => this.refreshFeed()}">
+              <ha-icon icon="mdi:refresh"></ha-icon>
+            </ha-icon-button>
+          ` : ''}
+        </div>
+      </div>
+    `;
+
     this.innerHTML = `
       <ha-card>
-        <div class="card-header">
-          <div class="card-title">${this.config.title || stateObj.attributes.friendly_name || 'Feed'}</div>
-          <div class="card-count">${stateObj.state} entries</div>
-        </div>
-        <div class="card-content">
+        ${headerHtml}
+        <div class="card-content ${compactMode ? 'compact-content' : ''}">
           ${entriesHtml}
         </div>
       </ha-card>
     `;
+
+    // Add refresh button click handler
+    if (showRefresh) {
+      const refreshBtn = this.querySelector('.refresh-btn');
+      if (refreshBtn) {
+        refreshBtn.addEventListener('click', () => this.refreshFeed());
+      }
+    }
+
+    this.addStyles();
+  }
+
+  refreshFeed() {
+    if (this._hass && this.config.entity) {
+      this._hass.callService('homeassistant', 'update_entity', {
+        entity_id: this.config.entity
+      });
+    }
+  }
+
+  addStyles() {
+    if (this.querySelector('style')) return;
 
     const style = document.createElement('style');
     style.textContent = `
@@ -102,44 +164,125 @@ class FeedParserCard extends HTMLElement {
       }
       feedparser-card ha-card {
         padding: 0;
+        overflow: hidden;
       }
       feedparser-card .card-header {
         display: flex;
         justify-content: space-between;
         align-items: center;
         padding: 16px;
+        background: var(--card-background-color, var(--ha-card-background));
         border-bottom: 1px solid var(--divider-color);
+      }
+      feedparser-card .header-left {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        min-width: 0;
+        flex: 1;
+      }
+      feedparser-card .feed-icon {
+        color: var(--primary-color);
+        --mdc-icon-size: 24px;
+        flex-shrink: 0;
+      }
+      feedparser-card .header-text {
+        min-width: 0;
+        flex: 1;
       }
       feedparser-card .card-title {
         font-weight: 500;
         font-size: 16px;
+        color: var(--primary-text-color);
+        text-decoration: none;
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      feedparser-card .card-title:hover {
+        color: var(--primary-color);
+      }
+      feedparser-card .last-updated {
+        font-size: 12px;
+        color: var(--secondary-text-color);
+        margin-top: 2px;
+      }
+      feedparser-card .header-right {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-shrink: 0;
       }
       feedparser-card .card-count {
-        color: var(--secondary-text-color);
+        background: var(--primary-color);
+        color: var(--text-primary-color, white);
         font-size: 14px;
+        font-weight: 500;
+        padding: 4px 10px;
+        border-radius: 12px;
+        min-width: 24px;
+        text-align: center;
+      }
+      feedparser-card .refresh-btn {
+        --mdc-icon-button-size: 36px;
+        --mdc-icon-size: 20px;
+        color: var(--secondary-text-color);
+      }
+      feedparser-card .refresh-btn:hover {
+        color: var(--primary-color);
       }
       feedparser-card .card-content {
         padding: 0;
+        max-height: 400px;
+        overflow-y: auto;
+      }
+      feedparser-card .card-content.compact-content {
+        max-height: 300px;
       }
       feedparser-card .feed-entry {
         display: flex;
-        padding: 16px;
+        padding: 12px 16px;
         border-bottom: 1px solid var(--divider-color);
-        transition: background-color 0.2s;
+        transition: background-color 0.15s ease;
+        gap: 12px;
+      }
+      feedparser-card .feed-entry:last-child {
+        border-bottom: none;
       }
       feedparser-card .feed-entry:hover {
-        background-color: var(--card-background-color, var(--primary-background-color));
+        background-color: var(--secondary-background-color, rgba(0,0,0,0.04));
       }
       feedparser-card .feed-entry.first-entry {
-        border-top: 2px solid var(--primary-color);
+        border-left: 3px solid var(--primary-color);
+        padding-left: 13px;
+      }
+      feedparser-card .feed-entry.compact {
+        padding: 8px 16px;
+        align-items: center;
+      }
+      feedparser-card .feed-entry.compact .entry-content {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      feedparser-card .feed-entry.compact .entry-title {
+        font-size: 14px;
+        margin: 0;
+      }
+      feedparser-card .entry-date-inline {
+        font-size: 11px;
+        color: var(--secondary-text-color);
+        white-space: nowrap;
       }
       feedparser-card .entry-image {
         flex-shrink: 0;
-        width: 120px;
-        height: 80px;
-        margin-right: 16px;
+        width: 80px;
+        height: 60px;
         overflow: hidden;
-        border-radius: 4px;
+        border-radius: 6px;
+        background: var(--secondary-background-color);
       }
       feedparser-card .entry-image img {
         width: 100%;
@@ -151,48 +294,96 @@ class FeedParserCard extends HTMLElement {
         min-width: 0;
       }
       feedparser-card .entry-header {
-        margin-bottom: 8px;
+        margin-bottom: 6px;
       }
       feedparser-card .entry-title {
         display: block;
         font-weight: 500;
-        font-size: 16px;
+        font-size: 14px;
+        line-height: 1.4;
         color: var(--primary-text-color);
         text-decoration: none;
         margin-bottom: 4px;
-        word-wrap: break-word;
       }
       feedparser-card .entry-title:hover {
         color: var(--primary-color);
       }
+      feedparser-card .entry-meta {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
       feedparser-card .entry-date {
-        font-size: 12px;
+        font-size: 11px;
         color: var(--secondary-text-color);
-        margin-top: 4px;
       }
       feedparser-card .entry-author {
-        font-size: 12px;
+        font-size: 11px;
         color: var(--secondary-text-color);
-        margin-top: 2px;
       }
       feedparser-card .entry-summary {
-        font-size: 14px;
+        font-size: 13px;
         color: var(--secondary-text-color);
         line-height: 1.5;
-        margin-top: 8px;
         display: -webkit-box;
-        -webkit-line-clamp: 3;
+        -webkit-line-clamp: 2;
         -webkit-box-orient: vertical;
         overflow: hidden;
       }
       feedparser-card .no-entries {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
         padding: 32px;
-        text-align: center;
         color: var(--secondary-text-color);
+        gap: 8px;
+      }
+      feedparser-card .no-entries ha-icon {
+        --mdc-icon-size: 48px;
+        opacity: 0.5;
       }
       feedparser-card .error {
         padding: 16px;
         color: var(--error-color);
+        text-align: center;
+      }
+
+      /* Scrollbar styling */
+      feedparser-card .card-content::-webkit-scrollbar {
+        width: 6px;
+      }
+      feedparser-card .card-content::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      feedparser-card .card-content::-webkit-scrollbar-thumb {
+        background: var(--scrollbar-thumb-color, rgba(0,0,0,0.2));
+        border-radius: 3px;
+      }
+      feedparser-card .card-content::-webkit-scrollbar-thumb:hover {
+        background: var(--primary-color);
+      }
+
+      /* Mobile responsiveness */
+      @media (max-width: 500px) {
+        feedparser-card .entry-image {
+          width: 60px;
+          height: 45px;
+        }
+        feedparser-card .card-header {
+          padding: 12px;
+        }
+        feedparser-card .feed-entry {
+          padding: 10px 12px;
+        }
+        feedparser-card .entry-title {
+          font-size: 13px;
+        }
+        feedparser-card .entry-summary {
+          font-size: 12px;
+          -webkit-line-clamp: 2;
+        }
       }
     `;
     this.appendChild(style);
@@ -207,7 +398,178 @@ class FeedParserCard extends HTMLElement {
   getCardSize() {
     return 3;
   }
+
+  static getConfigElement() {
+    return document.createElement('feedparser-card-editor');
+  }
+
+  static getStubConfig() {
+    return {
+      entity: '',
+      title: '',
+      max_entries: 5,
+      show_images: true,
+      show_summary: true,
+      show_date: true,
+      compact: false,
+      show_refresh: true
+    };
+  }
 }
 
 customElements.define('feedparser-card', FeedParserCard);
 
+// Card configuration UI
+class FeedParserCardEditor extends HTMLElement {
+  setConfig(config) {
+    this._config = config;
+    this.render();
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    this.render();
+  }
+
+  render() {
+    if (!this._hass || !this._config) return;
+
+    const entities = Object.keys(this._hass.states)
+      .filter(e => e.startsWith('sensor.') && this._hass.states[e].attributes.entries)
+      .sort();
+
+    this.innerHTML = `
+      <div class="card-config">
+        <ha-entity-picker
+          .hass="${this._hass}"
+          .value="${this._config.entity || ''}"
+          .configValue="${'entity'}"
+          @value-changed="${this._valueChanged}"
+          allow-custom-entity
+        ></ha-entity-picker>
+
+        <ha-textfield
+          label="Title (optional)"
+          .value="${this._config.title || ''}"
+          .configValue="${'title'}"
+          @input="${this._valueChanged}"
+        ></ha-textfield>
+
+        <ha-textfield
+          label="Max entries"
+          type="number"
+          .value="${this._config.max_entries || ''}"
+          .configValue="${'max_entries'}"
+          @input="${this._valueChanged}"
+        ></ha-textfield>
+
+        <ha-formfield label="Show images">
+          <ha-switch
+            .checked="${this._config.show_images !== false}"
+            .configValue="${'show_images'}"
+            @change="${this._valueChanged}"
+          ></ha-switch>
+        </ha-formfield>
+
+        <ha-formfield label="Show summary">
+          <ha-switch
+            .checked="${this._config.show_summary !== false}"
+            .configValue="${'show_summary'}"
+            @change="${this._valueChanged}"
+          ></ha-switch>
+        </ha-formfield>
+
+        <ha-formfield label="Show date">
+          <ha-switch
+            .checked="${this._config.show_date !== false}"
+            .configValue="${'show_date'}"
+            @change="${this._valueChanged}"
+          ></ha-switch>
+        </ha-formfield>
+
+        <ha-formfield label="Compact mode">
+          <ha-switch
+            .checked="${this._config.compact === true}"
+            .configValue="${'compact'}"
+            @change="${this._valueChanged}"
+          ></ha-switch>
+        </ha-formfield>
+
+        <ha-formfield label="Show refresh button">
+          <ha-switch
+            .checked="${this._config.show_refresh !== false}"
+            .configValue="${'show_refresh'}"
+            @change="${this._valueChanged}"
+          ></ha-switch>
+        </ha-formfield>
+      </div>
+      <style>
+        .card-config {
+          display: flex;
+          flex-direction: column;
+          gap: 16px;
+          padding: 16px;
+        }
+        ha-formfield {
+          display: flex;
+          align-items: center;
+        }
+      </style>
+    `;
+
+    // Set up event listeners
+    this.querySelectorAll('[configValue]').forEach(el => {
+      el.addEventListener('value-changed', (e) => this._valueChanged(e));
+      el.addEventListener('input', (e) => this._valueChanged(e));
+      el.addEventListener('change', (e) => this._valueChanged(e));
+    });
+  }
+
+  _valueChanged(ev) {
+    if (!this._config) return;
+
+    const target = ev.target;
+    const configValue = target.configValue || target.getAttribute('configValue');
+    if (!configValue) return;
+
+    let value;
+    if (target.tagName === 'HA-SWITCH') {
+      value = target.checked;
+    } else if (ev.detail && ev.detail.value !== undefined) {
+      value = ev.detail.value;
+    } else {
+      value = target.value;
+    }
+
+    if (configValue === 'max_entries') {
+      value = value ? parseInt(value, 10) : undefined;
+    }
+
+    const newConfig = { ...this._config };
+    if (value === '' || value === undefined) {
+      delete newConfig[configValue];
+    } else {
+      newConfig[configValue] = value;
+    }
+
+    this._config = newConfig;
+    const event = new CustomEvent('config-changed', {
+      detail: { config: newConfig },
+      bubbles: true,
+      composed: true
+    });
+    this.dispatchEvent(event);
+  }
+}
+
+customElements.define('feedparser-card-editor', FeedParserCardEditor);
+
+// Register card with Home Assistant
+window.customCards = window.customCards || [];
+window.customCards.push({
+  type: 'feedparser-card',
+  name: 'Feedparser Card',
+  description: 'Display RSS/Atom feed entries in a beautiful card',
+  preview: true,
+  documentationURL: 'https://github.com/custom-components/feedparser'
+});
