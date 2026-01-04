@@ -422,85 +422,56 @@ customElements.define('feedparser-card', FeedParserCard);
 // Card configuration UI
 class FeedParserCardEditor extends HTMLElement {
   setConfig(config) {
-    this._config = config;
+    this._config = { ...config };
     this.render();
   }
 
   set hass(hass) {
     this._hass = hass;
-    this.render();
+    if (this._entityPicker) {
+      this._entityPicker.hass = hass;
+    }
   }
 
   render() {
-    if (!this._hass || !this._config) return;
-
-    const entities = Object.keys(this._hass.states)
-      .filter(e => e.startsWith('sensor.') && this._hass.states[e].attributes.entries)
-      .sort();
+    if (!this._config) return;
 
     this.innerHTML = `
       <div class="card-config">
-        <ha-entity-picker
-          .hass="${this._hass}"
-          .value="${this._config.entity || ''}"
-          .configValue="${'entity'}"
-          @value-changed="${this._valueChanged}"
-          allow-custom-entity
-        ></ha-entity-picker>
+        <div class="entity-row">
+          <label>Entity *</label>
+          <div id="entity-picker-container"></div>
+        </div>
 
         <ha-textfield
+          id="title-input"
           label="Title (optional)"
-          .value="${this._config.title || ''}"
-          .configValue="${'title'}"
-          @input="${this._valueChanged}"
         ></ha-textfield>
 
         <ha-textfield
+          id="max-entries-input"
           label="Max entries"
           type="number"
-          .value="${this._config.max_entries || ''}"
-          .configValue="${'max_entries'}"
-          @input="${this._valueChanged}"
         ></ha-textfield>
 
         <ha-formfield label="Show images">
-          <ha-switch
-            .checked="${this._config.show_images !== false}"
-            .configValue="${'show_images'}"
-            @change="${this._valueChanged}"
-          ></ha-switch>
+          <ha-switch id="show-images-switch"></ha-switch>
         </ha-formfield>
 
         <ha-formfield label="Show summary">
-          <ha-switch
-            .checked="${this._config.show_summary !== false}"
-            .configValue="${'show_summary'}"
-            @change="${this._valueChanged}"
-          ></ha-switch>
+          <ha-switch id="show-summary-switch"></ha-switch>
         </ha-formfield>
 
         <ha-formfield label="Show date">
-          <ha-switch
-            .checked="${this._config.show_date !== false}"
-            .configValue="${'show_date'}"
-            @change="${this._valueChanged}"
-          ></ha-switch>
+          <ha-switch id="show-date-switch"></ha-switch>
         </ha-formfield>
 
         <ha-formfield label="Compact mode">
-          <ha-switch
-            .checked="${this._config.compact === true}"
-            .configValue="${'compact'}"
-            @change="${this._valueChanged}"
-          ></ha-switch>
+          <ha-switch id="compact-switch"></ha-switch>
         </ha-formfield>
 
         <ha-formfield label="Show refresh button">
-          <ha-switch
-            .checked="${this._config.show_refresh !== false}"
-            .configValue="${'show_refresh'}"
-            @change="${this._valueChanged}"
-          ></ha-switch>
+          <ha-switch id="show-refresh-switch"></ha-switch>
         </ha-formfield>
       </div>
       <style>
@@ -510,46 +481,94 @@ class FeedParserCardEditor extends HTMLElement {
           gap: 16px;
           padding: 16px;
         }
+        .entity-row {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+        .entity-row label {
+          font-weight: 500;
+          font-size: 12px;
+          color: var(--secondary-text-color);
+        }
         ha-formfield {
           display: flex;
           align-items: center;
         }
+        ha-entity-picker {
+          display: block;
+          width: 100%;
+        }
       </style>
     `;
 
-    // Set up event listeners
-    this.querySelectorAll('[configValue]').forEach(el => {
-      el.addEventListener('value-changed', (e) => this._valueChanged(e));
-      el.addEventListener('input', (e) => this._valueChanged(e));
-      el.addEventListener('change', (e) => this._valueChanged(e));
+    // Create and configure entity picker
+    const container = this.querySelector('#entity-picker-container');
+    this._entityPicker = document.createElement('ha-entity-picker');
+    this._entityPicker.hass = this._hass;
+    this._entityPicker.value = this._config.entity || '';
+    this._entityPicker.allowCustomEntity = true;
+    this._entityPicker.includeDomains = ['sensor'];
+    this._entityPicker.addEventListener('value-changed', (e) => {
+      this._updateConfig('entity', e.detail.value);
+    });
+    container.appendChild(this._entityPicker);
+
+    // Title input
+    const titleInput = this.querySelector('#title-input');
+    titleInput.value = this._config.title || '';
+    titleInput.addEventListener('input', (e) => {
+      this._updateConfig('title', e.target.value);
+    });
+
+    // Max entries input
+    const maxEntriesInput = this.querySelector('#max-entries-input');
+    maxEntriesInput.value = this._config.max_entries || '';
+    maxEntriesInput.addEventListener('input', (e) => {
+      const val = e.target.value ? parseInt(e.target.value, 10) : undefined;
+      this._updateConfig('max_entries', val);
+    });
+
+    // Switch inputs
+    const showImagesSwitch = this.querySelector('#show-images-switch');
+    showImagesSwitch.checked = this._config.show_images !== false;
+    showImagesSwitch.addEventListener('change', (e) => {
+      this._updateConfig('show_images', e.target.checked);
+    });
+
+    const showSummarySwitch = this.querySelector('#show-summary-switch');
+    showSummarySwitch.checked = this._config.show_summary !== false;
+    showSummarySwitch.addEventListener('change', (e) => {
+      this._updateConfig('show_summary', e.target.checked);
+    });
+
+    const showDateSwitch = this.querySelector('#show-date-switch');
+    showDateSwitch.checked = this._config.show_date !== false;
+    showDateSwitch.addEventListener('change', (e) => {
+      this._updateConfig('show_date', e.target.checked);
+    });
+
+    const compactSwitch = this.querySelector('#compact-switch');
+    compactSwitch.checked = this._config.compact === true;
+    compactSwitch.addEventListener('change', (e) => {
+      this._updateConfig('compact', e.target.checked);
+    });
+
+    const showRefreshSwitch = this.querySelector('#show-refresh-switch');
+    showRefreshSwitch.checked = this._config.show_refresh !== false;
+    showRefreshSwitch.addEventListener('change', (e) => {
+      this._updateConfig('show_refresh', e.target.checked);
     });
   }
 
-  _valueChanged(ev) {
+  _updateConfig(key, value) {
     if (!this._config) return;
 
-    const target = ev.target;
-    const configValue = target.configValue || target.getAttribute('configValue');
-    if (!configValue) return;
-
-    let value;
-    if (target.tagName === 'HA-SWITCH') {
-      value = target.checked;
-    } else if (ev.detail && ev.detail.value !== undefined) {
-      value = ev.detail.value;
-    } else {
-      value = target.value;
-    }
-
-    if (configValue === 'max_entries') {
-      value = value ? parseInt(value, 10) : undefined;
-    }
-
     const newConfig = { ...this._config };
-    if (value === '' || value === undefined) {
-      delete newConfig[configValue];
+    if (value === '' || value === undefined || value === null) {
+      delete newConfig[key];
     } else {
-      newConfig[configValue] = value;
+      newConfig[key] = value;
     }
 
     this._config = newConfig;
