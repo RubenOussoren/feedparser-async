@@ -17,7 +17,7 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_NAME, CONF_SCAN_INTERVAL, EntityCategory
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -595,23 +595,20 @@ class FeedParserLastEntrySensor(FeedParserBaseSensor):
         self._date_format = date_format
         self._local_time = local_time
 
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        """Handle updated data from the coordinator."""
+    @property
+    def native_value(self) -> str | None:
+        """Return the date of the most recent entry."""
         if not self.coordinator.data or not self.coordinator.data.valid_entries:
-            self._attr_native_value = None
-        else:
-            entry = self.coordinator.data.valid_entries[0]
-            date_str = entry.get("published") or entry.get("updated")
-            if date_str:
-                try:
-                    parsed = self._parse_date(date_str)
-                    self._attr_native_value = parsed.strftime(self._date_format)
-                except (ValueError, TypeError):
-                    self._attr_native_value = date_str
-            else:
-                self._attr_native_value = None
-        self.async_write_ha_state()
+            return None
+        entry = self.coordinator.data.valid_entries[0]
+        date_str = entry.get("published") or entry.get("updated")
+        if date_str:
+            try:
+                parsed = self._parse_date(date_str)
+                return parsed.strftime(self._date_format)
+            except (ValueError, TypeError):
+                return date_str
+        return None
 
     def _parse_date(self, date: str) -> datetime:
         """Parse a date string to datetime object."""
@@ -645,25 +642,29 @@ class FeedParserLatestHeadlineSensor(FeedParserBaseSensor):
         self._attr_name = f"{name} Latest"
         self._attr_unique_id = f"{feed_id}_latest_headline"
 
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        """Handle updated data from the coordinator."""
+    @property
+    def native_value(self) -> str | None:
+        """Return the latest headline title."""
         if not self.coordinator.data or not self.coordinator.data.valid_entries:
-            self._attr_native_value = None
-            self._attr_extra_state_attributes = {}
-        else:
-            entries = self.coordinator.data.valid_entries[:5]
-            if entries:
-                self._attr_native_value = entries[0].get("title", "No title")[:255]
-                headlines = [e.get("title", "No title") for e in entries]
-                self._attr_extra_state_attributes = {
-                    "headlines": headlines,
-                    "count": len(entries),
-                }
-            else:
-                self._attr_native_value = None
-                self._attr_extra_state_attributes = {}
-        self.async_write_ha_state()
+            return None
+        entries = self.coordinator.data.valid_entries
+        if entries:
+            return entries[0].get("title", "No title")[:255]
+        return None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return additional state attributes."""
+        if not self.coordinator.data or not self.coordinator.data.valid_entries:
+            return {}
+        entries = self.coordinator.data.valid_entries[:5]
+        if entries:
+            headlines = [e.get("title", "No title") for e in entries]
+            return {
+                "headlines": headlines,
+                "count": len(entries),
+            }
+        return {}
 
 
 class FeedParserFeedURLSensor(FeedParserBaseSensor):
