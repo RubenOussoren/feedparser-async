@@ -12,13 +12,17 @@ RSS feed custom component for [Home Assistant](https://www.home-assistant.io/) w
 
 ## Changes from Original
 
+- **Config Flow UI** - Add and manage feeds through Settings > Integrations (no YAML required)
 - **Async/await pattern** - Non-blocking I/O using aiohttp instead of requests
+- **DataUpdateCoordinator** - Centralized feed fetching with proper async handling
+- **Device Registry** - Feeds appear as devices with proper grouping
+- **Unique IDs** - Entities are editable in the UI and survive restarts
 - **Retry logic** - Exponential backoff (3 retries) for transient network failures
 - **Better error handling** - Graceful handling of timeouts, malformed feeds, and network errors
 - **Proper shutdown** - No more hanging threads during Home Assistant restart
 - **Session reuse** - Efficient connection pooling with aiohttp ClientSession
 - **Feed validation** - Checks for malformed feeds using feedparser's bozo flag
-- **Entity improvements** - Added EntityCategory.DIAGNOSTIC and native unit of measurement
+- **Custom Lovelace Card** - Beautiful feed display card included
 
 ## Installation
 
@@ -41,6 +45,24 @@ rm -rf feedparser_temp
 Then restart Home Assistant.
 
 ## Configuration
+
+### Config Flow (Recommended)
+
+1. Go to **Settings** > **Devices & Services**
+2. Click **Add Integration**
+3. Search for **Feedparser**
+4. Enter your feed details:
+   - **Feed Name**: A friendly name for this feed
+   - **Feed URL**: The RSS/Atom feed URL
+   - **Date Format**: Optional strftime format (default: `%a, %b %d %I:%M %p`)
+   - **Other options**: Configure as needed
+5. Click **Submit**
+
+You can edit feed settings later by clicking on the integration and selecting **Options**.
+
+### YAML Configuration (Backward Compatible)
+
+YAML configuration is still supported for backward compatibility. Existing YAML configs will continue to work and can be imported into Config Flow.
 
 **Example configuration.yaml:**
 
@@ -122,6 +144,8 @@ Each feed sensor provides:
 
 - **State**: Number of entries
 - **Unit**: `entries`
+- **Device**: Feeds are grouped under a "Feedparser" device in the device registry
+- **Unique ID**: Based on feed URL hash (entities survive restarts and are editable)
 - **Attributes**:
   - `entries`: List of feed items with requested fields
   - `attribution`: Data source attribution
@@ -181,6 +205,44 @@ sensor:
 ```
 
 ## Using with Lovelace
+
+### Custom Feedparser Card (Recommended)
+
+The integration includes a custom Lovelace card for displaying feeds beautifully.
+
+**Installation:**
+
+1. Add the card resource to your Lovelace configuration:
+
+   ```yaml
+   resources:
+     - url: /local/feedparser-card.js
+       type: module
+   ```
+
+   Or manually copy `www/feedparser-card.js` to your `www` folder.
+
+2. Add the card to your dashboard:
+   ```yaml
+   type: custom:feedparser-card
+   entity: sensor.tech_headlines
+   title: Tech News
+   max_entries: 10
+   show_images: true
+   show_summary: true
+   show_date: true
+   ```
+
+**Card Options:**
+
+| Option         | Type    | Default      | Description                |
+| -------------- | ------- | ------------ | -------------------------- |
+| `entity`       | string  | **Required** | Feed sensor entity ID      |
+| `title`        | string  | Entity name  | Card title                 |
+| `max_entries`  | number  | All entries  | Maximum entries to display |
+| `show_images`  | boolean | `true`       | Show entry images          |
+| `show_summary` | boolean | `true`       | Show entry summaries       |
+| `show_date`    | boolean | `true`       | Show publication dates     |
 
 ### With list-card
 

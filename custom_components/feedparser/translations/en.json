@@ -1,0 +1,55 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Add RSS Feed",
+        "description": "Configure an RSS or Atom feed to monitor.",
+        "data": {
+          "name": "Feed Name",
+          "feed_url": "Feed URL",
+          "date_format": "Date Format",
+          "local_time": "Convert to Local Time",
+          "show_topn": "Number of Entries to Show",
+          "remove_summary_image": "Remove Images from Summary",
+          "inclusions": "Fields to Include",
+          "exclusions": "Fields to Exclude",
+          "scan_interval": "Update Interval"
+        },
+        "data_description": {
+          "name": "A friendly name for this feed",
+          "feed_url": "The URL of the RSS or Atom feed",
+          "date_format": "Date format string (strftime format)",
+          "local_time": "Convert feed dates to your local timezone",
+          "show_topn": "Maximum number of entries to display",
+          "remove_summary_image": "Remove HTML image tags from summary text",
+          "inclusions": "List of fields to include (leave empty for all)",
+          "exclusions": "List of fields to exclude",
+          "scan_interval": "How often to check for updates"
+        }
+      }
+    },
+    "error": {
+      "invalid_url": "Invalid feed URL. Please enter a valid URL."
+    },
+    "abort": {
+      "already_configured": "This feed is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Feed Options",
+        "description": "Configure feed parsing options.",
+        "data": {
+          "date_format": "Date Format",
+          "local_time": "Convert to Local Time",
+          "show_topn": "Number of Entries to Show",
+          "remove_summary_image": "Remove Images from Summary",
+          "inclusions": "Fields to Include",
+          "exclusions": "Fields to Exclude",
+          "scan_interval": "Update Interval"
+        }
+      }
+    }
+  }
+}
