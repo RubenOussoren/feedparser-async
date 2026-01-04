@@ -1,4 +1,7 @@
-# sensor.feedparser
+# sensor.feedparser (Async Fork)
+
+> Modernized fork of [custom-components/feedparser](https://github.com/custom-components/feedparser) with async/await support for Home Assistant 2026+
+
 RSS feed custom component for [Home Assistant](https://www.home-assistant.io/) which can be used in conjunction with the custom [Lovelace](https://www.home-assistant.io/lovelace) [list-card](https://github.com/custom-cards/list-card)
 
 [![GitHub Release][releases-shield]][releases]
@@ -7,27 +10,35 @@ RSS feed custom component for [Home Assistant](https://www.home-assistant.io/) w
 ![Project Maintenance][maintenance-shield]
 [![GitHub Activity][commits-shield]][commits]
 
-[![Discord][discord-shield]][discord]
-[![Community Forum][forum-shield]][forum]
+## Changes from Original
 
-## Support
-Hey dude! Help me out for a couple of :beers: or a :coffee:!
-
-[![coffee](https://www.buymeacoffee.com/assets/img/custom_images/black_img.png)](https://www.buymeacoffee.com/zJtVxUAgH)
-
+- **Async/await pattern** - Non-blocking I/O using aiohttp instead of requests
+- **Retry logic** - Exponential backoff (3 retries) for transient network failures
+- **Better error handling** - Graceful handling of timeouts, malformed feeds, and network errors
+- **Proper shutdown** - No more hanging threads during Home Assistant restart
+- **Session reuse** - Efficient connection pooling with aiohttp ClientSession
+- **Feed validation** - Checks for malformed feeds using feedparser's bozo flag
+- **Entity improvements** - Added EntityCategory.DIAGNOSTIC and native unit of measurement
 
 ## Installation
+
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
 
-1. Open HACS Settings and add this repository (https://github.com/custom-components/feedparser/)
+1. Open HACS Settings and add this repository (https://github.com/RubenOussoren/feedparser-async)
    as a Custom Repository (use **Integration** as the category).
 2. The `feedparser` page should automatically load (or find it in the HACS Store)
 3. Click `Install`
 
-Alternatively, click on the button below to add the repository:
+### Manual Installation
 
-[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?category=Integration&repository=feedparser&owner=custom-components)
+```bash
+cd /path/to/homeassistant/config/custom_components
+git clone -b async-modernization https://github.com/RubenOussoren/feedparser-async.git feedparser_temp
+mv feedparser_temp/custom_components/feedparser ./feedparser
+rm -rf feedparser_temp
+```
 
+Then restart Home Assistant.
 
 ## Configuration
 
@@ -37,59 +48,205 @@ Alternatively, click on the button below to add the repository:
 sensor:
   - platform: feedparser
     name: Engineering Feed
-    feed_url: 'https://www.sciencedaily.com/rss/matter_energy/engineering.xml'
-    date_format: '%a, %d %b %Y %H:%M:%S %Z'
+    feed_url: "https://www.sciencedaily.com/rss/matter_energy/engineering.xml"
+    date_format: "%a, %d %b %Y %H:%M:%S"
+    local_time: true
+    scan_interval:
+      hours: 6
+    inclusions:
+      - title
+      - link
+      - summary
+      - published
+
+  - platform: feedparser
+    name: World News
+    feed_url: "https://feeds.npr.org/1004/rss.xml"
+    local_time: true
+    show_topn: 10
+    inclusions:
+      - title
+      - link
+      - summary
+      - published
+      - author
+      - content
+      - image
+```
+
+## Field Mapping
+
+Feedparser normalizes RSS field names. Use these names in your `inclusions`:
+
+| RSS Field         | Use in Config | Description                            |
+| ----------------- | ------------- | -------------------------------------- |
+| `title`           | `title`       | Article headline                       |
+| `link`            | `link`        | URL to article                         |
+| `description`     | `summary`     | Short description/excerpt              |
+| `content:encoded` | `content`     | Full article content (HTML, as a list) |
+| `pubDate`         | `published`   | Publication date                       |
+| `dc:creator`      | `author`      | Writer's name                          |
+| `guid`            | `id`          | Unique identifier                      |
+| `enclosure`       | `image`       | Article thumbnail/image                |
+| `updated`         | `updated`     | Last updated date                      |
+| `created`         | `created`     | Creation date                          |
+| `expired`         | `expired`     | Expiration date                        |
+
+> **Note:** The `content` field is returned as a list of dictionaries. Access the HTML with `entry.content[0].value` in templates.
+
+### Image Handling
+
+Add `image` to your `inclusions` list to extract images from feed entries. The integration will:
+
+1. Look for enclosures with image MIME types
+2. Search for `<img>` tags in the summary
+3. Fall back to the Home Assistant logo if no image is found
+
+## Configuration Variables
+
+| Key             | Required | Default              | Description                     |
+| --------------- | -------- | -------------------- | ------------------------------- |
+| `platform`      | Yes      | -                    | Must be `feedparser`            |
+| `name`          | Yes      | -                    | Name for your feed sensor       |
+| `feed_url`      | Yes      | -                    | The RSS/Atom feed URL           |
+| `date_format`   | No       | `%a, %b %d %I:%M %p` | strftime format for dates       |
+| `local_time`    | No       | `false`              | Convert dates to local timezone |
+| `show_topn`     | No       | all                  | Limit number of entries         |
+| `inclusions`    | No       | all fields           | Fields to include               |
+| `exclusions`    | No       | none                 | Fields to exclude               |
+| `scan_interval` | No       | 1 hour               | Update frequency                |
+
+## Sensor Attributes
+
+Each feed sensor provides:
+
+- **State**: Number of entries
+- **Unit**: `entries`
+- **Attributes**:
+  - `entries`: List of feed items with requested fields
+  - `attribution`: Data source attribution
+
+## Example: Morning Briefing
+
+```yaml
+sensor:
+  # Finance News
+  - platform: feedparser
+    name: Finance Headlines
+    feed_url: "https://www.bnnbloomberg.ca/arc/outboundfeeds/rss/?outputType=xml"
+    date_format: "%a, %d %b %Y %H:%M:%S"
+    local_time: true
     scan_interval:
       hours: 3
     inclusions:
       - title
       - link
-      - description
-      - image
+      - summary
       - published
-    exclusions:
-      - language
+      - author
+      - image
 
-  # Configuration of the second sensor tracking a different RSS feed
+  # World News
   - platform: feedparser
-    name: Algemeen
-    feed_url: https://www.nu.nl/rss/Algemeen
+    name: World Headlines
+    feed_url: "https://feeds.npr.org/1004/rss.xml"
+    date_format: "%a, %d %b %Y %H:%M:%S"
     local_time: true
-    show_topn: 1
+    scan_interval:
+      hours: 3
+    inclusions:
+      - title
+      - link
+      - summary
+      - published
+      - author
+      - content
+      - image
+
+  # Tech News
+  - platform: feedparser
+    name: Tech Headlines
+    feed_url: "https://feeds.arstechnica.com/arstechnica/technology-lab"
+    date_format: "%a, %d %b %Y %H:%M:%S"
+    local_time: true
+    scan_interval:
+      hours: 6
+    inclusions:
+      - title
+      - link
+      - summary
+      - published
+      - author
+      - image
 ```
 
-If you wish the integration to look for enclosures in the feed entries, add `image` to `inclusions` list. Do not use `enclosure`.
-The integration tries to get the link to an image for the given feed item and stores it under the attribute named `image`. If it fails to find it, it assigns the Home Assistant logo to it instead.
+## Using with Lovelace
 
-Note that the original `pubDate` field is available under `published` attribute for the given feed entry. Other date-type values that can be available are `updated`, `created` and `expired`. Please refer to [the documentation of the original feedparser](https://feedparser.readthedocs.io/en/latest/date-parsing.html) library.
+### With list-card
 
-**Configuration variables:**
+```yaml
+type: custom:list-card
+entity: sensor.tech_headlines
+title: Tech News
+feed_attribute: entries
+columns:
+  - field: image
+    style:
+      - width: 80px
+  - field: title
+  - field: published
+```
 
-key | description
-:--- | :---
-**platform (Required)** | The platform name
-**name (Required)** | Name your feed
-**feed_url (Required)** | The RSS feed URL
-**date_format (Optional)** | strftime date format for date strings **Default** `%a, %b %d %I:%M %p`
-**local_time (Optional)** | Whether to convert date into local time **Default** false
-**show_topn (Optional)** | fetch how many entres from rss source，if not set then fetch all
-**inclusions (Optional)** | List of fields to include from populating the list
-**exclusions (Optional)** | List of fields to exclude from populating the list
-**scan_interval (Optional)** | Update interval in hours
+### In Templates
 
-***
+```yaml
+# Get first headline title
+{{ state_attr('sensor.tech_headlines', 'entries')[0].title }}
 
-Note: Will return all fields if no inclusions or exclusions are specified
+# Get first headline link
+{{ state_attr('sensor.tech_headlines', 'entries')[0].link }}
 
-Due to how `custom_components` are loaded, it is normal to see a `ModuleNotFoundError` error on first boot after adding this, to resolve it, restart Home-Assistant.
+# Loop through headlines
+{% for entry in state_attr('sensor.tech_headlines', 'entries')[:5] %}
+- {{ entry.title }}
+{% endfor %}
+```
 
-[commits-shield]: https://img.shields.io/github/commit-activity/y/custom-components/feedparser.svg?style=for-the-badge
-[commits]: https://github.com/custom-components/feedparser/commits/master
+## Troubleshooting
+
+### ModuleNotFoundError on first boot
+
+This is normal for custom components. Restart Home Assistant to resolve.
+
+### Feed not updating
+
+- Check the feed URL is accessible
+- Review Home Assistant logs for errors
+- The integration will retry 3 times with exponential backoff
+
+### Dates showing incorrectly
+
+- Try different `date_format` strings
+- Enable `local_time: true` for local timezone conversion
+- Omit timezone specifiers (`%Z`, `%z`) - feedparser handles them internally
+
+### Empty entries
+
+- Verify the feed has content by visiting the URL in a browser
+- Check that `inclusions` use the correct feedparser field names (e.g., `summary` not `description`)
+
+## Credits
+
+- Original integration by [@iantrich](https://github.com/iantrich) and [@ogajduse](https://github.com/ogajduse)
+- Async modernization by [@RubenOussoren](https://github.com/RubenOussoren)
+
+[commits-shield]: https://img.shields.io/github/commit-activity/y/RubenOussoren/feedparser-async.svg?style=for-the-badge
+[commits]: https://github.com/RubenOussoren/feedparser-async/commits/async-modernization
 [discord]: https://discord.gg/Qa5fW2R
 [discord-shield]: https://img.shields.io/discord/330944238910963714.svg?style=for-the-badge
 [forum-shield]: https://img.shields.io/badge/community-forum-brightgreen.svg?style=for-the-badge
 [forum]: https://community.home-assistant.io/t/custom-component-rss-feed-parser/64637
-[license-shield]: https://img.shields.io/github/license/custom-components/feedparser.svg?style=for-the-badge
-[maintenance-shield]: https://img.shields.io/badge/maintainer-Ondrej%20Gajdusek%20%40ogajduse-blue.svg?style=for-the-badge
-[releases-shield]: https://img.shields.io/github/release/custom-components/feedparser.svg?style=for-the-badge
-[releases]: https://github.com/custom-components/feedparser/releases
+[license-shield]: https://img.shields.io/github/license/RubenOussoren/feedparser-async.svg?style=for-the-badge
+[maintenance-shield]: https://img.shields.io/badge/maintainer-Ruben%20Oussoren%20%40RubenOussoren-blue.svg?style=for-the-badge
+[releases-shield]: https://img.shields.io/github/release/RubenOussoren/feedparser-async.svg?style=for-the-badge
+[releases]: https://github.com/RubenOussoren/feedparser-async/releases

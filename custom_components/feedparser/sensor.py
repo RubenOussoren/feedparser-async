@@ -25,7 +25,7 @@ from homeassistant.util import dt
 if TYPE_CHECKING:
     pass
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 COMPONENT_REPO = "https://github.com/custom-components/feedparser/"
 
@@ -46,6 +46,7 @@ DEFAULT_MAX_RETRIES = 3
 DEFAULT_RETRY_DELAY = 2
 USER_AGENT = f"Home Assistant Feed-parser Integration {__version__}"
 IMAGE_REGEX = r"<img.+?src=\"(.+?)\".+?>"
+IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg")
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
     {
@@ -71,6 +72,7 @@ class FeedEntryDict(TypedDict, total=False):
     link: str
     description: str
     summary: str
+    content: str
     published: str
     updated: str
     created: str
@@ -147,7 +149,6 @@ class FeedParserSensor(SensorEntity):
 
     async def async_added_to_hass(self: FeedParserSensor) -> None:
         """When entity is added to hass."""
-        # Create session when entity is added
         self._session = aiohttp.ClientSession(
             timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
             headers={"User-Agent": USER_AGENT},
@@ -155,7 +156,6 @@ class FeedParserSensor(SensorEntity):
 
     async def async_will_remove_from_hass(self: FeedParserSensor) -> None:
         """When entity will be removed from hass."""
-        # Close session when entity is removed
         if self._session:
             await self._session.close()
             self._session = None
@@ -186,10 +186,8 @@ class FeedParserSensor(SensorEntity):
 
         _LOGGER.debug("Feed %s: Polling feed data from %s", self.name, self._feed)
 
-        # Check if feed URL is a file:// URL (local file)
         parsed_url = urlparse(self._feed)
         if parsed_url.scheme == "file":
-            # For local files, read synchronously (feedparser handles this)
             try:
                 with open(parsed_url.path, encoding="utf-8") as file:
                     feed_text = file.read()
@@ -205,7 +203,6 @@ class FeedParserSensor(SensorEntity):
                 self._attr_native_value = None
                 return
         else:
-            # For HTTP/HTTPS URLs, use async fetch with retry logic
             feed_text = await self._fetch_feed_with_retry()
             if not feed_text:
                 self._available = False
@@ -213,7 +210,6 @@ class FeedParserSensor(SensorEntity):
                 return
             parsed_feed = feedparser.parse(feed_text)
 
-        # Check for feed parsing errors
         if parsed_feed.bozo and parsed_feed.bozo_exception:
             _LOGGER.warning(
                 "Feed %s: Feed parsing warning: %s",
@@ -229,7 +225,6 @@ class FeedParserSensor(SensorEntity):
 
         _LOGGER.debug("Feed %s: Feed data fetched successfully", self.name)
 
-        # Validate entries have required fields
         valid_entries = [
             entry
             for entry in parsed_feed.entries
@@ -245,7 +240,6 @@ class FeedParserSensor(SensorEntity):
             self._available = True
             return
 
-        # Set the sensor value to the amount of entries
         entry_count = min(len(valid_entries), self._show_topn)
         self._attr_native_value = entry_count
 
@@ -255,7 +249,6 @@ class FeedParserSensor(SensorEntity):
             entry_count,
         )
 
-        # Clear and regenerate entries
         self._entries.clear()
         self._entries.extend(self._generate_entries(valid_entries[:entry_count]))
         self._available = True
@@ -309,7 +302,6 @@ class FeedParserSensor(SensorEntity):
                     err,
                 )
 
-            # Wait before retry with exponential backoff
             if attempt < DEFAULT_MAX_RETRIES - 1:
                 delay = DEFAULT_RETRY_DELAY * (2**attempt)
                 _LOGGER.debug(
@@ -346,7 +338,6 @@ class FeedParserSensor(SensorEntity):
         sensor_entry: FeedEntryDict = {}
 
         for key, value in feed_entry.items():
-            # Skip if excluded or not in inclusions list
             if (
                 (self._inclusions and key not in self._inclusions)
                 or ("parsed" in key)
@@ -354,7 +345,6 @@ class FeedParserSensor(SensorEntity):
             ):
                 continue
 
-            # Handle date fields
             if key in ["published", "updated", "created", "expired"]:
                 try:
                     parsed_date = self._parse_date(value)
@@ -368,26 +358,33 @@ class FeedParserSensor(SensorEntity):
                     )
                     continue
 
-            # Handle image field
             elif key == "image":
                 if isinstance(value, dict):
                     sensor_entry["image"] = value.get("href", "")  # type: ignore[literal-required]
                 else:
                     sensor_entry["image"] = str(value)  # type: ignore[literal-required]
 
-            # Handle other fields
+            elif key == "content":
+                if isinstance(value, list) and value:
+                    content_item = value[0]
+                    if isinstance(content_item, dict):
+                        sensor_entry["content"] = content_item.get("value", "")  # type: ignore[literal-required]
+                    else:
+                        sensor_entry["content"] = str(content_item)  # type: ignore[literal-required]
+                elif isinstance(value, dict):
+                    sensor_entry["content"] = value.get("value", "")  # type: ignore[literal-required]
+                else:
+                    sensor_entry["content"] = str(value) if value is not None else ""  # type: ignore[literal-required]
+
             else:
-                # Convert value to string if it's not already
                 if isinstance(value, (list, dict)):
                     sensor_entry[key] = str(value)  # type: ignore[literal-required]
                 else:
                     sensor_entry[key] = str(value) if value is not None else ""  # type: ignore[literal-required]
 
-        # Process image if in inclusions but not found
         if "image" in self._inclusions and "image" not in sensor_entry:
             sensor_entry["image"] = self._process_image(feed_entry)  # type: ignore[literal-required]
 
-        # Process link if in inclusions but not found
         if (
             "link" in self._inclusions
             and "link" not in sensor_entry
@@ -395,7 +392,6 @@ class FeedParserSensor(SensorEntity):
         ):
             sensor_entry["link"] = processed_link  # type: ignore[literal-required]
 
-        # Remove images from summary if requested
         if self._remove_summary_image and "summary" in sensor_entry:
             sensor_entry["summary"] = re.sub(  # type: ignore[literal-required]
                 IMAGE_REGEX,
@@ -411,35 +407,62 @@ class FeedParserSensor(SensorEntity):
         if not date:
             raise ValueError("Date string is None or empty")
 
-        try:
-            parsed_time: datetime = email.utils.parsedate_to_datetime(date)
-        except (ValueError, TypeError):
+        # Detect ISO 8601 format (e.g., 2024-02-01T00:00:01Z or 2024-02-01T00:00:01+00:00)
+        is_iso_format = "T" in date and (
+            date.endswith("Z") or "+" in date or (date.count("-") >= 2 and ":" in date)
+        )
+
+        parsed_time: datetime | None = None
+
+        if is_iso_format:
             _LOGGER.debug(
-                "Feed %s: Unable to parse RFC-822 date from %s, trying dateutil",
+                "Feed %s: Detected ISO 8601 format, using dateutil parser for %s",
                 self.name,
                 date,
             )
-            # Fallback to dateutil parser
             try:
                 parsed_time = parser.parse(date)
             except (ValueError, TypeError) as err:
-                msg = (
-                    f"Feed {self.name}: Unable to parse date {date}, "
-                    "caused by an incorrect date format"
+                _LOGGER.debug(
+                    "Feed %s: dateutil failed for ISO date %s, trying RFC-822: %s",
+                    self.name,
+                    date,
+                    err,
                 )
-                raise ValueError(msg) from err
+                try:
+                    parsed_time = email.utils.parsedate_to_datetime(date)
+                except (ValueError, TypeError) as parse_err:
+                    msg = (
+                        f"Feed {self.name}: Unable to parse ISO 8601 date {date}, "
+                        "caused by an incorrect date format"
+                    )
+                    raise ValueError(msg) from parse_err
+        else:
+            try:
+                parsed_time = email.utils.parsedate_to_datetime(date)
+            except (ValueError, TypeError):
+                _LOGGER.debug(
+                    "Feed %s: Unable to parse RFC-822 date from %s, trying dateutil",
+                    self.name,
+                    date,
+                )
+                try:
+                    parsed_time = parser.parse(date)
+                except (ValueError, TypeError) as err:
+                    msg = (
+                        f"Feed {self.name}: Unable to parse date {date}, "
+                        "caused by an incorrect date format"
+                    )
+                    raise ValueError(msg) from err
 
-        # Ensure timezone info is present
+        # Handle timezone-naive dates by assuming UTC
         if not parsed_time.tzinfo:
-            # Try dateutil parser which might handle timezone better
-            try:
-                parsed_time = parser.parse(date)
-            except (ValueError, TypeError) as err:
-                msg = (
-                    f"Feed {self.name}: Unable to parse date {date} with timezone, "
-                    "caused by an incorrect date format"
-                )
-                raise ValueError(msg) from err
+            _LOGGER.debug(
+                "Feed %s: Date %s has no timezone, assuming UTC",
+                self.name,
+                date,
+            )
+            parsed_time = parsed_time.replace(tzinfo=timezone.utc)
 
         # Replace tzinfo with UTC offset if tzinfo doesn't have a TZ name
         if parsed_time.tzinfo and not parsed_time.tzname():
@@ -447,7 +470,6 @@ class FeedParserSensor(SensorEntity):
             if offset:
                 parsed_time = parsed_time.replace(tzinfo=timezone(offset))
 
-        # Convert to local time if requested
         if self._local_time:
             parsed_time = dt.as_local(parsed_time)
 
@@ -456,17 +478,72 @@ class FeedParserSensor(SensorEntity):
 
     def _process_image(self: FeedParserSensor, feed_entry: FeedParserDict) -> str:
         """Extract image URL from feed entry."""
-        # Check enclosures first
+        def is_image_url(url: str) -> bool:
+            """Check if URL appears to be an image."""
+            if not url:
+                return False
+            url_lower = url.lower()
+            if "image/" in url_lower:
+                return True
+            return any(url_lower.endswith(ext) for ext in IMAGE_EXTENSIONS)
+
         if feed_entry.get("enclosures"):
             images = [
                 enc
                 for enc in feed_entry["enclosures"]
                 if enc.get("type", "").startswith("image/")
+                or is_image_url(enc.get("href", ""))
             ]
             if images:
                 return images[0].get("href", DEFAULT_THUMBNAIL)
 
-        # Check summary for embedded images
+        if "media_content" in feed_entry:
+            media_items = feed_entry["media_content"]
+            if isinstance(media_items, list):
+                for media in media_items:
+                    if isinstance(media, dict):
+                        media_type = media.get("type", "")
+                        media_url = media.get("url", "")
+                        if media_type.startswith("image/") or is_image_url(media_url):
+                            return media_url or DEFAULT_THUMBNAIL
+            elif isinstance(media_items, dict):
+                media_type = media_items.get("type", "")
+                media_url = media_items.get("url", "")
+                if media_type.startswith("image/") or is_image_url(media_url):
+                    return media_url or DEFAULT_THUMBNAIL
+
+        if "media_thumbnail" in feed_entry:
+            thumbnails = feed_entry["media_thumbnail"]
+            if isinstance(thumbnails, list) and thumbnails:
+                thumb = thumbnails[0]
+                if isinstance(thumb, dict):
+                    thumb_url = thumb.get("url", "")
+                    if thumb_url:
+                        return thumb_url
+            elif isinstance(thumbnails, dict):
+                thumb_url = thumbnails.get("url", "")
+                if thumb_url:
+                    return thumb_url
+
+        if "links" in feed_entry:
+            for link in feed_entry["links"]:
+                if isinstance(link, dict):
+                    link_type = link.get("type", "")
+                    link_href = link.get("href", "")
+                    if link_type.startswith("image/") or is_image_url(link_href):
+                        return link_href
+
+        if "content" in feed_entry:
+            content_items = feed_entry["content"]
+            if isinstance(content_items, list):
+                for content_item in content_items:
+                    if isinstance(content_item, dict):
+                        content_value = content_item.get("value", "")
+                        if content_value:
+                            images = re.findall(IMAGE_REGEX, content_value)
+                            if images:
+                                return images[0]
+
         if "summary" in feed_entry:
             images = re.findall(IMAGE_REGEX, feed_entry["summary"])
             if images:
