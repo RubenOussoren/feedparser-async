@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 from datetime import timedelta
 from typing import Any
+import time
 
 from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.components.http import StaticPathConfig
@@ -61,11 +62,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 StaticPathConfig(
                     FRONTEND_SCRIPT_URL,
                     hass.config.path("custom_components/feedparser/www/feedparser-card.js"),
-                    True,
+                    False,
                 )
             ])
-            add_extra_js_url(hass, FRONTEND_SCRIPT_URL)
-            _LOGGER.debug("Registered feedparser-card.js frontend resource")
+            cache_buster = f"?v={int(time.time())}"
+            add_extra_js_url(hass, FRONTEND_SCRIPT_URL + cache_buster)
+            _LOGGER.debug("Registered feedparser-card.js frontend resource with cache buster: %s", cache_buster)
         except RuntimeError:
             _LOGGER.debug("Frontend resource already registered")
         hass.data[DOMAIN][DATA_FRONTEND_REGISTERED] = True

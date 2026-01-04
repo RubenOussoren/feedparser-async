@@ -1,7 +1,13 @@
 /* eslint-disable @typescript-eslint/no-this-alias */
 /* eslint-disable @typescript-eslint/explicit-module-boundary-types */
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
 class FeedParserCard extends HTMLElement {
+  constructor() {
+    super();
+    this._lastEntriesHash = null;
+  }
+
   setConfig(config) {
     this.config = config;
     if (!this.config.entity) {
@@ -11,7 +17,25 @@ class FeedParserCard extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
-    this.updateCard();
+    
+    if (this.config && this.config.entity) {
+      const entityId = this.config.entity;
+      const newState = hass.states[entityId];
+      
+      const newEntriesHash = newState ? JSON.stringify({
+        state: newState.state,
+        entries: newState.attributes.entries,
+        feed_title: newState.attributes.feed_title,
+        last_entry_date: newState.attributes.last_entry_date
+      }) : null;
+      
+      if (newEntriesHash !== this._lastEntriesHash) {
+        this._lastEntriesHash = newEntriesHash;
+        this.updateCard();
+      }
+    } else {
+      this.updateCard();
+    }
   }
 
   get hass() {
@@ -135,7 +159,6 @@ class FeedParserCard extends HTMLElement {
       </ha-card>
     `;
 
-    // Add refresh button click handler
     if (showRefresh) {
       const refreshBtn = this.querySelector('.refresh-btn');
       if (refreshBtn) {
@@ -349,8 +372,6 @@ class FeedParserCard extends HTMLElement {
         color: var(--error-color);
         text-align: center;
       }
-
-      /* Scrollbar styling */
       feedparser-card .card-content::-webkit-scrollbar {
         width: 6px;
       }
@@ -364,8 +385,6 @@ class FeedParserCard extends HTMLElement {
       feedparser-card .card-content::-webkit-scrollbar-thumb:hover {
         background: var(--primary-color);
       }
-
-      /* Mobile responsiveness */
       @media (max-width: 500px) {
         feedparser-card .entry-image {
           width: 60px;
@@ -399,7 +418,6 @@ class FeedParserCard extends HTMLElement {
     return 3;
   }
 
-  // Support for HA 2024.11+ sections view grid sizing
   getGridOptions() {
     return {
       columns: 12,
@@ -429,35 +447,67 @@ class FeedParserCard extends HTMLElement {
 
 customElements.define('feedparser-card', FeedParserCard);
 
-// Card configuration UI - uses Home Assistant native components
 class FeedParserCardEditor extends HTMLElement {
   constructor() {
     super();
     this._config = {};
     this._hass = null;
+    this._initialized = false;
   }
 
   setConfig(config) {
     this._config = { ...config };
-    this._render();
+    if (!this._initialized) {
+      this._render();
+    } else {
+      this._updateValues();
+    }
   }
 
   set hass(hass) {
+    const hadHass = !!this._hass;
     this._hass = hass;
-    this._render();
+    
+    if (!hadHass && hass) {
+      this._render();
+    }
   }
 
   get hass() {
     return this._hass;
   }
 
+  _updateValues() {
+    const entityPicker = this.querySelector('ha-entity-picker#entity-picker');
+    const fallbackSelect = this.querySelector('select#entity-select');
+    
+    if (entityPicker && entityPicker.value !== this._config.entity) {
+      entityPicker.value = this._config.entity || '';
+    } else if (fallbackSelect && fallbackSelect.value !== this._config.entity) {
+      fallbackSelect.value = this._config.entity || '';
+    }
+    
+    const titleInput = this.querySelector('#title-input');
+    if (titleInput && titleInput.value !== (this._config.title || '')) {
+      titleInput.value = this._config.title || '';
+    }
+    
+    const maxEntriesInput = this.querySelector('#max-entries-input');
+    if (maxEntriesInput) {
+      const configVal = this._config.max_entries || '';
+      if (maxEntriesInput.value !== String(configVal)) {
+        maxEntriesInput.value = configVal;
+      }
+    }
+  }
+
   _render() {
-    // Don't render until we have both hass and config
     if (!this._hass) {
       return;
     }
 
-    // Create the editor HTML structure with HA components
+    this._initialized = true;
+
     this.innerHTML = `
       <style>
         .editor-container {
@@ -498,13 +548,7 @@ class FeedParserCardEditor extends HTMLElement {
       </style>
       
       <div class="editor-container">
-        <div class="form-row">
-          <ha-entity-picker
-            id="entity-picker"
-            label="Entity (Required)"
-            allow-custom-entity
-          ></ha-entity-picker>
-        </div>
+        <div class="form-row" id="entity-picker-container"></div>
 
         <div class="form-row">
           <ha-textfield
@@ -551,24 +595,11 @@ class FeedParserCardEditor extends HTMLElement {
       </div>
     `;
 
-    // Set up entity picker - must set properties via JS, not HTML attributes
-    const entityPicker = this.querySelector('#entity-picker');
-    if (entityPicker) {
-      entityPicker.hass = this._hass;
-      entityPicker.value = this._config.entity || '';
-      entityPicker.includeDomains = ['sensor'];
-      // Filter to only show entities with 'entries' attribute (feedparser sensors)
-      entityPicker.entityFilter = (stateObj) => {
-        return stateObj.attributes && stateObj.attributes.entries !== undefined;
-      };
-      entityPicker.addEventListener('value-changed', (ev) => {
-        if (ev.detail && ev.detail.value !== undefined) {
-          this._updateConfig('entity', ev.detail.value);
-        }
-      });
+    const entityPickerContainer = this.querySelector('#entity-picker-container');
+    if (entityPickerContainer) {
+      this._initEntityPicker(entityPickerContainer);
     }
 
-    // Set up title input
     const titleInput = this.querySelector('#title-input');
     if (titleInput) {
       titleInput.value = this._config.title || '';
@@ -577,7 +608,6 @@ class FeedParserCardEditor extends HTMLElement {
       });
     }
 
-    // Set up max entries input
     const maxEntriesInput = this.querySelector('#max-entries-input');
     if (maxEntriesInput) {
       maxEntriesInput.value = this._config.max_entries || '';
@@ -587,7 +617,6 @@ class FeedParserCardEditor extends HTMLElement {
       });
     }
 
-    // Set up switches - HA switches use 'checked' property and 'change' event
     const switchConfigs = [
       { id: 'show-images', key: 'show_images', defaultValue: true },
       { id: 'show-summary', key: 'show_summary', defaultValue: true },
@@ -599,11 +628,9 @@ class FeedParserCardEditor extends HTMLElement {
     switchConfigs.forEach(({ id, key, defaultValue }) => {
       const switchEl = this.querySelector(`#${id}`);
       if (switchEl) {
-        // Set initial checked state
         const currentValue = this._config[key];
         switchEl.checked = currentValue !== undefined ? currentValue : defaultValue;
         
-        // Listen for changes
         switchEl.addEventListener('change', (ev) => {
           this._updateConfig(key, ev.target.checked);
         });
@@ -611,13 +638,108 @@ class FeedParserCardEditor extends HTMLElement {
     });
   }
 
+  async _initEntityPicker(container) {
+    let isEntityPickerDefined = customElements.get('ha-entity-picker');
+    
+    if (!isEntityPickerDefined) {
+      try {
+        await Promise.race([
+          customElements.whenDefined('ha-entity-picker'),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))
+        ]);
+        isEntityPickerDefined = true;
+      } catch {
+        isEntityPickerDefined = false;
+      }
+    }
+    
+    if (isEntityPickerDefined) {
+      this._createEntityPicker(container);
+    } else {
+      this._createFallbackEntityPicker(container);
+    }
+  }
+
+  _createEntityPicker(container) {
+    const existingPicker = container.querySelector('#entity-picker');
+    if (existingPicker) {
+      existingPicker.remove();
+    }
+    
+    try {
+      const entityPicker = document.createElement('ha-entity-picker');
+      entityPicker.id = 'entity-picker';
+      entityPicker.hass = this._hass;
+      entityPicker.value = this._config.entity || '';
+      entityPicker.label = 'Entity (Required)';
+      entityPicker.includeDomains = ['sensor'];
+      entityPicker.allowCustomEntity = true;
+      
+      entityPicker.entityFilter = (stateObj) => {
+        return stateObj.attributes && stateObj.attributes.entries !== undefined;
+      };
+      
+      entityPicker.addEventListener('value-changed', (ev) => {
+        if (ev.detail && ev.detail.value !== undefined) {
+          this._updateConfig('entity', ev.detail.value);
+        }
+      });
+      
+      container.appendChild(entityPicker);
+    } catch {
+      this._createFallbackEntityPicker(container);
+    }
+  }
+
+  _createFallbackEntityPicker(container) {
+    const existingPicker = container.querySelector('#entity-picker');
+    if (existingPicker) {
+      existingPicker.remove();
+    }
+    
+    const wrapper = document.createElement('div');
+    wrapper.id = 'entity-picker';
+    wrapper.innerHTML = `
+      <label style="display: block; font-size: 12px; color: var(--secondary-text-color); margin-bottom: 4px;">
+        Entity (Required)
+      </label>
+      <select id="entity-select" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid var(--divider-color); background: var(--card-background-color); color: var(--primary-text-color);">
+        <option value="">Select a feedparser entity...</option>
+      </select>
+    `;
+    
+    container.appendChild(wrapper);
+    
+    const select = wrapper.querySelector('#entity-select');
+    
+    if (this._hass && this._hass.states) {
+      Object.keys(this._hass.states)
+        .filter(entityId => {
+          const state = this._hass.states[entityId];
+          return entityId.startsWith('sensor.') && 
+                 state.attributes && 
+                 state.attributes.entries !== undefined;
+        })
+        .forEach(entityId => {
+          const option = document.createElement('option');
+          option.value = entityId;
+          option.textContent = this._hass.states[entityId].attributes.friendly_name || entityId;
+          if (entityId === this._config.entity) {
+            option.selected = true;
+          }
+          select.appendChild(option);
+        });
+    }
+    
+    select.addEventListener('change', (ev) => {
+      this._updateConfig('entity', ev.target.value);
+    });
+  }
+
   _updateConfig(key, value) {
-    // Create new config object
     const newConfig = { ...this._config };
     
-    // Handle empty/undefined values
     if (value === '' || value === undefined || value === null) {
-      // Don't delete entity key, just set it empty
       if (key === 'entity') {
         newConfig[key] = '';
       } else {
@@ -627,10 +749,8 @@ class FeedParserCardEditor extends HTMLElement {
       newConfig[key] = value;
     }
 
-    // Update internal config
     this._config = newConfig;
     
-    // Fire config-changed event for Home Assistant
     const event = new CustomEvent('config-changed', {
       detail: { config: newConfig },
       bubbles: true,
@@ -642,7 +762,6 @@ class FeedParserCardEditor extends HTMLElement {
 
 customElements.define('feedparser-card-editor', FeedParserCardEditor);
 
-// Register card with Home Assistant
 window.customCards = window.customCards || [];
 window.customCards.push({
   type: 'feedparser-card',
