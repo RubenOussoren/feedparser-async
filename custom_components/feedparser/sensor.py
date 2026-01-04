@@ -543,20 +543,30 @@ class FeedParserSensor(CoordinatorEntity[FeedParserCoordinator], SensorEntity):
     def extra_state_attributes(self: FeedParserSensor) -> dict[str, Any]:
         """Return entity specific state attributes.
         
+        Provides both human-readable summary attributes and full entry data.
         Limits entries to MAX_ENTRIES_IN_ATTRIBUTES to stay under 16KB limit.
         """
         limited_entries = self.feed_entries[:MAX_ENTRIES_IN_ATTRIBUTES]
+        
+        headlines = [
+            entry.get("title", "No title") for entry in limited_entries[:10]
+        ]
+        
+        latest_entry = limited_entries[0] if limited_entries else None
+        
         attrs: dict[str, Any] = {
+            "headlines": headlines,
+            "latest_title": latest_entry.get("title") if latest_entry else None,
+            "latest_link": latest_entry.get("link") if latest_entry else None,
+            "latest_published": latest_entry.get("published") if latest_entry else None,
             "entries": limited_entries,
-            "feed_url": self._feed,
             "total_entries": len(self.feed_entries),
         }
+        
         if self._feed_title:
             attrs["feed_title"] = self._feed_title
         if self._feed_link:
             attrs["feed_link"] = self._feed_link
-        if self._feed_description:
-            attrs["feed_description"] = self._feed_description
         if self._last_entry_date:
             attrs["last_entry_date"] = self._last_entry_date
         return attrs
