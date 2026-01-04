@@ -32,7 +32,7 @@ _LOGGER = logging.getLogger(__name__)
 PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BINARY_SENSOR]
 
 FRONTEND_SCRIPT_URL = "/feedparser/feedparser-card.js"
-_FRONTEND_REGISTERED = False
+DATA_FRONTEND_REGISTERED = "feedparser_frontend_registered"
 
 
 def get_scan_interval_timedelta(options: dict[str, Any]) -> timedelta:
@@ -53,20 +53,22 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Feedparser from a config entry."""
-    global _FRONTEND_REGISTERED
     hass.data.setdefault(DOMAIN, {})
 
-    if not _FRONTEND_REGISTERED:
-        await hass.http.async_register_static_paths([
-            StaticPathConfig(
-                FRONTEND_SCRIPT_URL,
-                hass.config.path("custom_components/feedparser/www/feedparser-card.js"),
-                True,
-            )
-        ])
-        add_extra_js_url(hass, FRONTEND_SCRIPT_URL)
-        _FRONTEND_REGISTERED = True
-        _LOGGER.debug("Registered feedparser-card.js frontend resource")
+    if not hass.data[DOMAIN].get(DATA_FRONTEND_REGISTERED):
+        try:
+            await hass.http.async_register_static_paths([
+                StaticPathConfig(
+                    FRONTEND_SCRIPT_URL,
+                    hass.config.path("custom_components/feedparser/www/feedparser-card.js"),
+                    True,
+                )
+            ])
+            add_extra_js_url(hass, FRONTEND_SCRIPT_URL)
+            _LOGGER.debug("Registered feedparser-card.js frontend resource")
+        except RuntimeError:
+            _LOGGER.debug("Frontend resource already registered")
+        hass.data[DOMAIN][DATA_FRONTEND_REGISTERED] = True
 
     feed_url = entry.data[CONF_FEED_URL]
     name = entry.data[CONF_NAME]
