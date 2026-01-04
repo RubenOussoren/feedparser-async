@@ -47,6 +47,8 @@ if TYPE_CHECKING:
 _LOGGER: logging.Logger = logging.getLogger(__name__)
 
 MAX_SUMMARY_LENGTH = 200
+MAX_TITLE_LENGTH = 150
+MAX_ENTRIES_IN_ATTRIBUTES = 20
 ESSENTIAL_FIELDS = {"title", "link", "published", "updated", "summary", "image", "author"}
 
 
@@ -329,7 +331,13 @@ class FeedParserSensor(CoordinatorEntity[FeedParserCoordinator], SensorEntity):
                     summary_text = summary_text[:MAX_SUMMARY_LENGTH].rsplit(' ', 1)[0] + "..."
                 sensor_entry["summary"] = summary_text  # type: ignore[literal-required]
 
-            elif key in ("title", "link", "author"):
+            elif key == "title":
+                title_text = str(value) if value else ""
+                if len(title_text) > MAX_TITLE_LENGTH:
+                    title_text = title_text[:MAX_TITLE_LENGTH].rsplit(' ', 1)[0] + "..."
+                sensor_entry["title"] = title_text  # type: ignore[literal-required]
+
+            elif key in ("link", "author"):
                 if isinstance(value, (list, dict)):
                     sensor_entry[key] = str(value)  # type: ignore[literal-required]
                 else:
@@ -533,10 +541,15 @@ class FeedParserSensor(CoordinatorEntity[FeedParserCoordinator], SensorEntity):
 
     @property
     def extra_state_attributes(self: FeedParserSensor) -> dict[str, Any]:
-        """Return entity specific state attributes."""
+        """Return entity specific state attributes.
+        
+        Limits entries to MAX_ENTRIES_IN_ATTRIBUTES to stay under 16KB limit.
+        """
+        limited_entries = self.feed_entries[:MAX_ENTRIES_IN_ATTRIBUTES]
         attrs: dict[str, Any] = {
-            "entries": self.feed_entries,
+            "entries": limited_entries,
             "feed_url": self._feed,
+            "total_entries": len(self.feed_entries),
         }
         if self._feed_title:
             attrs["feed_title"] = self._feed_title
