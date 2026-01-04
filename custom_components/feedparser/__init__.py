@@ -29,7 +29,7 @@ from .coordinator import FeedParserCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [Platform.SENSOR]
+PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BINARY_SENSOR]
 
 FRONTEND_SCRIPT_URL = "/feedparser/feedparser-card.js"
 _FRONTEND_REGISTERED = False

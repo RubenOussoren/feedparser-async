@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 
 import aiohttp
@@ -61,6 +61,13 @@ class FeedParserCoordinator(DataUpdateCoordinator[FeedParserData]):
         self.name = name
         self.feed_id = hashlib.md5(feed_url.encode()).hexdigest()
         self._session: aiohttp.ClientSession | None = None
+        self._update_interval = update_interval
+
+        self.last_successful_fetch: datetime | None = None
+        self.last_error: str | None = None
+        self.is_connected: bool = False
+        self.fetch_count: int = 0
+        self.error_count: int = 0
 
         super().__init__(
             hass,
@@ -68,6 +75,11 @@ class FeedParserCoordinator(DataUpdateCoordinator[FeedParserData]):
             name=f"{DOMAIN}_{name}",
             update_interval=update_interval,
         )
+
+    @property
+    def configured_update_interval(self) -> timedelta:
+        """Return the configured update interval."""
+        return self._update_interval
 
     async def _async_update_data(self) -> FeedParserData:
         """Fetch data from feed."""
@@ -78,6 +90,7 @@ class FeedParserCoordinator(DataUpdateCoordinator[FeedParserData]):
             )
 
         _LOGGER.debug("Feed %s: Polling feed data from %s", self.name, self.feed_url)
+        self.fetch_count += 1
 
         parsed_url = urlparse(self.feed_url)
         if parsed_url.scheme == "file":
@@ -88,7 +101,13 @@ class FeedParserCoordinator(DataUpdateCoordinator[FeedParserData]):
                 parsed_feed = await self.hass.async_add_executor_job(
                     feedparser.parse, feed_text
                 )
+                self.is_connected = True
+                self.last_successful_fetch = datetime.now(timezone.utc)
+                self.last_error = None
             except (OSError, UnicodeDecodeError) as err:
+                self.is_connected = False
+                self.last_error = str(err)
+                self.error_count += 1
                 _LOGGER.error(
                     "Feed %s: Error reading local file %s: %s",
                     self.name,
@@ -99,10 +118,16 @@ class FeedParserCoordinator(DataUpdateCoordinator[FeedParserData]):
         else:
             feed_text = await self._fetch_feed_with_retry()
             if not feed_text:
+                self.is_connected = False
+                self.last_error = "Failed to fetch feed after retries"
+                self.error_count += 1
                 raise UpdateFailed("Failed to fetch feed")
             parsed_feed = await self.hass.async_add_executor_job(
                 feedparser.parse, feed_text
             )
+            self.is_connected = True
+            self.last_successful_fetch = datetime.now(timezone.utc)
+            self.last_error = None
 
         if parsed_feed.bozo and parsed_feed.bozo_exception:
             _LOGGER.warning(

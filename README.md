@@ -13,6 +13,7 @@ RSS feed custom component for [Home Assistant](https://www.home-assistant.io/) w
 ## Features
 
 - **Config Flow UI** - Add and manage feeds through Settings > Integrations
+- **Rich Device Page** - Multiple sensors per feed showing entry count, latest headline, last update, and diagnostics
 - **Async/await pattern** - Non-blocking I/O using aiohttp instead of requests
 - **DataUpdateCoordinator** - Centralized feed fetching with proper async handling
 - **Device Registry** - Feeds appear as devices with proper grouping
@@ -66,9 +67,32 @@ You can edit feed settings later by clicking on the integration and selecting **
 | Max Entries     | `50`                 | Limit number of entries         |
 | Update Interval | `1 hour`             | How often to fetch the feed     |
 
+## Entities Created
+
+Each feed creates multiple entities for a rich device page experience:
+
+### Sensors
+
+| Entity              | Description                                |
+| ------------------- | ------------------------------------------ |
+| **Entry Count**     | Main sensor showing number of feed entries |
+| **Latest Headline** | Shows the most recent headline title       |
+| **Last Entry**      | Date/time of the most recent feed entry    |
+
+### Diagnostic Sensors
+
+| Entity              | Description                                    |
+| ------------------- | ---------------------------------------------- |
+| **Feed URL**        | The configured RSS feed URL                    |
+| **Update Interval** | How often the feed refreshes (e.g., "1 hour")  |
+| **Last Fetch**      | Timestamp of last successful feed fetch        |
+| **Connected**       | Binary sensor showing feed connectivity status |
+
+The device page will show all these entities organized into Sensors and Diagnostics sections, similar to ESPHome devices.
+
 ## Sensor Attributes
 
-Each feed sensor provides:
+The main Entry Count sensor provides:
 
 - **State**: Number of entries
 - **Unit**: `entries`
@@ -81,6 +105,13 @@ Each feed sensor provides:
   - `feed_link`: The feed's website link
   - `feed_description`: The feed's description
   - `last_entry_date`: Date of the most recent entry
+
+The Latest Headline sensor includes:
+
+- **State**: The most recent headline title
+- **Attributes**:
+  - `headlines`: List of top 5 headlines
+  - `count`: Number of headlines
 
 ## Using with Lovelace
 
@@ -159,6 +190,9 @@ columns:
 {% for entry in state_attr('sensor.tech_headlines', 'entries')[:5] %}
 - {{ entry.title }}
 {% endfor %}
+
+# Use the dedicated Latest Headline sensor
+{{ states('sensor.tech_headlines_latest') }}
 ```
 
 ## Troubleshooting
@@ -171,6 +205,7 @@ This is normal for custom components. Restart Home Assistant to resolve.
 
 - Check the feed URL is accessible
 - Review Home Assistant logs for errors
+- Check the "Connected" diagnostic sensor for connectivity status
 - The integration will retry 3 times with exponential backoff
 
 ### Dates showing incorrectly
@@ -182,6 +217,12 @@ This is normal for custom components. Restart Home Assistant to resolve.
 
 - Verify the feed has content by visiting the URL in a browser
 - Some feeds may not include all fields (summary, image, etc.)
+
+### Diagnostic sensors not showing
+
+- Diagnostic entities are hidden by default in Home Assistant
+- Go to the device page and click "Show disabled entities" to see them
+- Or enable them individually from the entity settings
 
 ## Credits
 

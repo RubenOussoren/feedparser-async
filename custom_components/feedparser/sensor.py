@@ -10,10 +10,14 @@ from typing import TYPE_CHECKING, Any, TypedDict
 
 from dateutil import parser
 from feedparser import FeedParserDict
-from homeassistant.components.sensor import SensorEntity
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+    SensorEntityDescription,
+)
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_NAME, CONF_SCAN_INTERVAL
-from homeassistant.core import HomeAssistant
+from homeassistant.const import CONF_NAME, CONF_SCAN_INTERVAL, EntityCategory
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -80,26 +84,57 @@ async def async_setup_entry(
     """Set up Feedparser sensor from a config entry."""
     coordinator: FeedParserCoordinator = hass.data[DOMAIN][entry.entry_id]
     options = entry.options
+    feed_url = entry.data[CONF_FEED_URL]
+    name = entry.data[CONF_NAME]
+    feed_id = hashlib.md5(feed_url.encode()).hexdigest()
 
-    async_add_entities(
-        [
-            FeedParserSensor(
-                hass=hass,
-                feed=entry.data[CONF_FEED_URL],
-                name=entry.data[CONF_NAME],
-                date_format=options.get(CONF_DATE_FORMAT, DEFAULT_DATE_FORMAT),
-                show_topn=options.get(CONF_SHOW_TOPN, DEFAULT_TOPN),
-                remove_summary_image=options.get(CONF_REMOVE_SUMMARY_IMG, False),
-                inclusions=options.get(CONF_INCLUSIONS, []),
-                exclusions=options.get(CONF_EXCLUSIONS, []),
-                scan_interval=get_scan_interval_timedelta(
-                    options.get(CONF_SCAN_INTERVAL, int(DEFAULT_SCAN_INTERVAL.total_seconds()))
-                ),
-                local_time=options.get(CONF_LOCAL_TIME, False),
-                coordinator=coordinator,
+    entities: list[SensorEntity] = [
+        FeedParserSensor(
+            hass=hass,
+            feed=feed_url,
+            name=name,
+            date_format=options.get(CONF_DATE_FORMAT, DEFAULT_DATE_FORMAT),
+            show_topn=options.get(CONF_SHOW_TOPN, DEFAULT_TOPN),
+            remove_summary_image=options.get(CONF_REMOVE_SUMMARY_IMG, False),
+            inclusions=options.get(CONF_INCLUSIONS, []),
+            exclusions=options.get(CONF_EXCLUSIONS, []),
+            scan_interval=get_scan_interval_timedelta(
+                options.get(CONF_SCAN_INTERVAL, int(DEFAULT_SCAN_INTERVAL.total_seconds()))
             ),
-        ],
-    )
+            local_time=options.get(CONF_LOCAL_TIME, False),
+            coordinator=coordinator,
+        ),
+        FeedParserLastEntrySensor(
+            coordinator=coordinator,
+            feed_id=feed_id,
+            name=name,
+            date_format=options.get(CONF_DATE_FORMAT, DEFAULT_DATE_FORMAT),
+            local_time=options.get(CONF_LOCAL_TIME, False),
+        ),
+        FeedParserLatestHeadlineSensor(
+            coordinator=coordinator,
+            feed_id=feed_id,
+            name=name,
+        ),
+        FeedParserFeedURLSensor(
+            coordinator=coordinator,
+            feed_id=feed_id,
+            name=name,
+            feed_url=feed_url,
+        ),
+        FeedParserUpdateIntervalSensor(
+            coordinator=coordinator,
+            feed_id=feed_id,
+            name=name,
+        ),
+        FeedParserLastFetchSensor(
+            coordinator=coordinator,
+            feed_id=feed_id,
+            name=name,
+        ),
+    ]
+
+    async_add_entities(entities)
 
 
 class FeedParserSensor(CoordinatorEntity[FeedParserCoordinator], SensorEntity):
@@ -512,3 +547,199 @@ class FeedParserSensor(CoordinatorEntity[FeedParserCoordinator], SensorEntity):
         if self._last_entry_date:
             attrs["last_entry_date"] = self._last_entry_date
         return attrs
+
+
+class FeedParserBaseSensor(CoordinatorEntity[FeedParserCoordinator], SensorEntity):
+    """Base class for additional Feedparser sensors."""
+
+    def __init__(
+        self,
+        coordinator: FeedParserCoordinator,
+        feed_id: str,
+        name: str,
+    ) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator)
+        self._feed_id = feed_id
+        self._feed_name = name
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device information."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._feed_id)},
+            name=f"RSS Feed: {self._feed_name}",
+            manufacturer="Feedparser",
+            model="RSS/Atom Feed",
+            entry_type=DeviceEntryType.SERVICE,
+        )
+
+
+class FeedParserLastEntrySensor(FeedParserBaseSensor):
+    """Sensor showing the date of the most recent feed entry."""
+
+    _attr_icon = "mdi:calendar-clock"
+
+    def __init__(
+        self,
+        coordinator: FeedParserCoordinator,
+        feed_id: str,
+        name: str,
+        date_format: str,
+        local_time: bool,
+    ) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator, feed_id, name)
+        self._attr_name = f"{name} Last Entry"
+        self._attr_unique_id = f"{feed_id}_last_entry"
+        self._date_format = date_format
+        self._local_time = local_time
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated data from the coordinator."""
+        if not self.coordinator.data or not self.coordinator.data.valid_entries:
+            self._attr_native_value = None
+        else:
+            entry = self.coordinator.data.valid_entries[0]
+            date_str = entry.get("published") or entry.get("updated")
+            if date_str:
+                try:
+                    parsed = self._parse_date(date_str)
+                    self._attr_native_value = parsed.strftime(self._date_format)
+                except (ValueError, TypeError):
+                    self._attr_native_value = date_str
+            else:
+                self._attr_native_value = None
+        self.async_write_ha_state()
+
+    def _parse_date(self, date: str) -> datetime:
+        """Parse a date string to datetime object."""
+        try:
+            parsed_time = parser.parse(date)
+        except (ValueError, TypeError):
+            parsed_time = email.utils.parsedate_to_datetime(date)
+
+        if not parsed_time.tzinfo:
+            parsed_time = parsed_time.replace(tzinfo=timezone.utc)
+
+        if self._local_time:
+            parsed_time = dt.as_local(parsed_time)
+
+        return parsed_time
+
+
+class FeedParserLatestHeadlineSensor(FeedParserBaseSensor):
+    """Sensor showing the latest headline from the feed."""
+
+    _attr_icon = "mdi:newspaper"
+
+    def __init__(
+        self,
+        coordinator: FeedParserCoordinator,
+        feed_id: str,
+        name: str,
+    ) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator, feed_id, name)
+        self._attr_name = f"{name} Latest"
+        self._attr_unique_id = f"{feed_id}_latest_headline"
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated data from the coordinator."""
+        if not self.coordinator.data or not self.coordinator.data.valid_entries:
+            self._attr_native_value = None
+            self._attr_extra_state_attributes = {}
+        else:
+            entries = self.coordinator.data.valid_entries[:5]
+            if entries:
+                self._attr_native_value = entries[0].get("title", "No title")[:255]
+                headlines = [e.get("title", "No title") for e in entries]
+                self._attr_extra_state_attributes = {
+                    "headlines": headlines,
+                    "count": len(entries),
+                }
+            else:
+                self._attr_native_value = None
+                self._attr_extra_state_attributes = {}
+        self.async_write_ha_state()
+
+
+class FeedParserFeedURLSensor(FeedParserBaseSensor):
+    """Diagnostic sensor showing the configured feed URL."""
+
+    _attr_icon = "mdi:link"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(
+        self,
+        coordinator: FeedParserCoordinator,
+        feed_id: str,
+        name: str,
+        feed_url: str,
+    ) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator, feed_id, name)
+        self._attr_name = f"{name} Feed URL"
+        self._attr_unique_id = f"{feed_id}_feed_url"
+        self._feed_url = feed_url
+        self._attr_native_value = feed_url
+
+
+class FeedParserUpdateIntervalSensor(FeedParserBaseSensor):
+    """Diagnostic sensor showing the configured update interval."""
+
+    _attr_icon = "mdi:timer-refresh"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(
+        self,
+        coordinator: FeedParserCoordinator,
+        feed_id: str,
+        name: str,
+    ) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator, feed_id, name)
+        self._attr_name = f"{name} Update Interval"
+        self._attr_unique_id = f"{feed_id}_update_interval"
+
+    @property
+    def native_value(self) -> str:
+        """Return the update interval as a human-readable string."""
+        interval = self.coordinator.configured_update_interval
+        total_seconds = int(interval.total_seconds())
+
+        if total_seconds >= 86400:
+            days = total_seconds // 86400
+            return f"{days} day{'s' if days > 1 else ''}"
+        elif total_seconds >= 3600:
+            hours = total_seconds // 3600
+            return f"{hours} hour{'s' if hours > 1 else ''}"
+        else:
+            minutes = total_seconds // 60
+            return f"{minutes} minute{'s' if minutes > 1 else ''}"
+
+
+class FeedParserLastFetchSensor(FeedParserBaseSensor):
+    """Diagnostic sensor showing when the feed was last successfully fetched."""
+
+    _attr_icon = "mdi:clock-check"
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(
+        self,
+        coordinator: FeedParserCoordinator,
+        feed_id: str,
+        name: str,
+    ) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator, feed_id, name)
+        self._attr_name = f"{name} Last Fetch"
+        self._attr_unique_id = f"{feed_id}_last_fetch"
+
+    @property
+    def native_value(self) -> datetime | None:
+        """Return the last successful fetch timestamp."""
+        return self.coordinator.last_successful_fetch
