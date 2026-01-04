@@ -82,9 +82,12 @@ class FeedParserCoordinator(DataUpdateCoordinator[FeedParserData]):
         parsed_url = urlparse(self.feed_url)
         if parsed_url.scheme == "file":
             try:
-                with open(parsed_url.path, encoding="utf-8") as file:
-                    feed_text = file.read()
-                parsed_feed = feedparser.parse(feed_text)
+                feed_text = await self.hass.async_add_executor_job(
+                    self._read_local_file, parsed_url.path
+                )
+                parsed_feed = await self.hass.async_add_executor_job(
+                    feedparser.parse, feed_text
+                )
             except (OSError, UnicodeDecodeError) as err:
                 _LOGGER.error(
                     "Feed %s: Error reading local file %s: %s",
@@ -97,7 +100,9 @@ class FeedParserCoordinator(DataUpdateCoordinator[FeedParserData]):
             feed_text = await self._fetch_feed_with_retry()
             if not feed_text:
                 raise UpdateFailed("Failed to fetch feed")
-            parsed_feed = feedparser.parse(feed_text)
+            parsed_feed = await self.hass.async_add_executor_job(
+                feedparser.parse, feed_text
+            )
 
         if parsed_feed.bozo and parsed_feed.bozo_exception:
             _LOGGER.warning(
@@ -173,6 +178,12 @@ class FeedParserCoordinator(DataUpdateCoordinator[FeedParserData]):
             last_exception,
         )
         return None
+
+    @staticmethod
+    def _read_local_file(file_path: str) -> str:
+        """Read local file synchronously (called from executor)."""
+        with open(file_path, encoding="utf-8") as file:
+            return file.read()
 
     async def async_shutdown(self) -> None:
         """Close the session."""

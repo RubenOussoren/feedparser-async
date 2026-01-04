@@ -198,8 +198,8 @@ class FeedParserSensor(CoordinatorEntity[FeedParserCoordinator], SensorEntity):
 
     async def async_added_to_hass(self: FeedParserSensor) -> None:
         """When entity is added to hass."""
-        await super().async_added_to_hass()
         if self._coordinator:
+            await super().async_added_to_hass()
             self.async_on_remove(
                 self.coordinator.async_add_listener(self._handle_coordinator_update)
             )

@@ -37,6 +37,17 @@ def validate_url(url: str) -> bool:
     return bool(parsed.scheme and parsed.netloc)
 
 
+def parse_list_input(value: str | list[str]) -> list[str]:
+    """Parse comma-separated string or list into list of strings."""
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        if not value.strip():
+            return []
+        return [item.strip() for item in value.split(",") if item.strip()]
+    return []
+
+
 class FeedParserConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Feedparser."""
 
@@ -83,8 +94,12 @@ class FeedParserConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         CONF_REMOVE_SUMMARY_IMG: user_input.get(
                             CONF_REMOVE_SUMMARY_IMG, False
                         ),
-                        CONF_INCLUSIONS: user_input.get(CONF_INCLUSIONS, []),
-                        CONF_EXCLUSIONS: user_input.get(CONF_EXCLUSIONS, []),
+                        CONF_INCLUSIONS: parse_list_input(
+                            user_input.get(CONF_INCLUSIONS, "")
+                        ),
+                        CONF_EXCLUSIONS: parse_list_input(
+                            user_input.get(CONF_EXCLUSIONS, "")
+                        ),
                         CONF_SCAN_INTERVAL: user_input.get(
                             CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL
                         ),
@@ -101,12 +116,8 @@ class FeedParserConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Optional(CONF_LOCAL_TIME, default=False): bool,
                 vol.Optional(CONF_SHOW_TOPN, default=DEFAULT_TOPN): vol.Coerce(int),
                 vol.Optional(CONF_REMOVE_SUMMARY_IMG, default=False): bool,
-                vol.Optional(CONF_INCLUSIONS, default=[]): vol.All(
-                    cv.ensure_list, [str]
-                ),
-                vol.Optional(CONF_EXCLUSIONS, default=[]): vol.All(
-                    cv.ensure_list, [str]
-                ),
+                vol.Optional(CONF_INCLUSIONS, default=""): str,
+                vol.Optional(CONF_EXCLUSIONS, default=""): str,
                 vol.Optional(
                     CONF_SCAN_INTERVAL, default=DEFAULT_SCAN_INTERVAL
                 ): cv.time_period,
@@ -142,8 +153,12 @@ class FeedParserConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 CONF_REMOVE_SUMMARY_IMG: import_info.get(
                     CONF_REMOVE_SUMMARY_IMG, False
                 ),
-                CONF_INCLUSIONS: import_info.get(CONF_INCLUSIONS, []),
-                CONF_EXCLUSIONS: import_info.get(CONF_EXCLUSIONS, []),
+                CONF_INCLUSIONS: parse_list_input(
+                    import_info.get(CONF_INCLUSIONS, [])
+                ),
+                CONF_EXCLUSIONS: parse_list_input(
+                    import_info.get(CONF_EXCLUSIONS, [])
+                ),
                 CONF_SCAN_INTERVAL: import_info.get(
                     CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL
                 ),
@@ -163,9 +178,25 @@ class FeedParserOptionsFlowHandler(config_entries.OptionsFlow):
     ) -> FlowResult:
         """Manage the options."""
         if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
+            processed_input = dict(user_input)
+            processed_input[CONF_INCLUSIONS] = parse_list_input(
+                user_input.get(CONF_INCLUSIONS, "")
+            )
+            processed_input[CONF_EXCLUSIONS] = parse_list_input(
+                user_input.get(CONF_EXCLUSIONS, "")
+            )
+            return self.async_create_entry(title="", data=processed_input)
 
         options = self.config_entry.options
+
+        def format_list_for_ui(value: list[str] | str) -> str:
+            """Format list as comma-separated string for UI."""
+            if isinstance(value, list):
+                return ", ".join(value)
+            if isinstance(value, str):
+                return value
+            return ""
+
         data_schema = vol.Schema(
             {
                 vol.Optional(
@@ -186,12 +217,12 @@ class FeedParserOptionsFlowHandler(config_entries.OptionsFlow):
                 ): bool,
                 vol.Optional(
                     CONF_INCLUSIONS,
-                    default=options.get(CONF_INCLUSIONS, []),
-                ): vol.All(cv.ensure_list, [str]),
+                    default=format_list_for_ui(options.get(CONF_INCLUSIONS, [])),
+                ): str,
                 vol.Optional(
                     CONF_EXCLUSIONS,
-                    default=options.get(CONF_EXCLUSIONS, []),
-                ): vol.All(cv.ensure_list, [str]),
+                    default=format_list_for_ui(options.get(CONF_EXCLUSIONS, [])),
+                ): str,
                 vol.Optional(
                     CONF_SCAN_INTERVAL,
                     default=options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),

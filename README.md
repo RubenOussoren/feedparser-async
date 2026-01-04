@@ -46,7 +46,9 @@ Then restart Home Assistant.
 
 ## Configuration
 
-### Config Flow (Recommended)
+### Config Flow (Recommended - No YAML Required!)
+
+**You no longer need YAML configuration!** Add and manage feeds entirely through the Home Assistant UI.
 
 1. Go to **Settings** > **Devices & Services**
 2. Click **Add Integration**
@@ -60,9 +62,9 @@ Then restart Home Assistant.
 
 You can edit feed settings later by clicking on the integration and selecting **Options**.
 
-### YAML Configuration (Backward Compatible)
+### YAML Configuration (Optional - For Advanced Users)
 
-YAML configuration is still supported for backward compatibility. Existing YAML configs will continue to work and can be imported into Config Flow.
+YAML configuration is still supported for backward compatibility or if you prefer YAML. Existing YAML configs will continue to work and can be imported into Config Flow automatically.
 
 **Example configuration.yaml:**
 
