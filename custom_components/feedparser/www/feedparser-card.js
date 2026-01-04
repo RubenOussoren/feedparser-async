@@ -419,140 +419,180 @@ class FeedParserCard extends HTMLElement {
 
 customElements.define('feedparser-card', FeedParserCard);
 
-// Card configuration UI
+// Card configuration UI - uses native HTML elements for reliability
 class FeedParserCardEditor extends HTMLElement {
   constructor() {
     super();
     this._config = {};
     this._hass = null;
+    this._rendered = false;
   }
 
   setConfig(config) {
     this._config = { ...config };
-    this._render();
-  }
-
-  set hass(hass) {
-    this._hass = hass;
-    // Update entity picker if it exists
-    const picker = this.querySelector('ha-entity-picker');
-    if (picker) {
-      picker.hass = hass;
-    }
-    // Re-render if we have config but haven't rendered yet
-    if (this._config && !this.querySelector('.card-config')) {
+    if (this._hass) {
       this._render();
     }
   }
 
-  _render() {
-    if (!this._hass) return;
+  set hass(hass) {
+    this._hass = hass;
+    if (this._config && !this._rendered) {
+      this._render();
+    }
+  }
 
-    // Get feedparser entities for suggestions
-    const feedparserEntities = Object.keys(this._hass.states)
-      .filter(e => e.startsWith('sensor.') && 
-        this._hass.states[e].attributes.entries !== undefined)
+  _getFeedparserEntities() {
+    if (!this._hass) return [];
+    return Object.keys(this._hass.states)
+      .filter(entityId => {
+        const state = this._hass.states[entityId];
+        return entityId.startsWith('sensor.') && 
+          state.attributes && 
+          state.attributes.entries !== undefined;
+      })
       .sort();
+  }
+
+  _render() {
+    this._rendered = true;
+    const entities = this._getFeedparserEntities();
+    
+    const entityOptions = entities.map(e => {
+      const friendly = this._hass.states[e]?.attributes?.friendly_name || e;
+      const selected = e === this._config.entity ? 'selected' : '';
+      return `<option value="${e}" ${selected}>${friendly}</option>`;
+    }).join('');
 
     this.innerHTML = `
-      <div class="card-config">
-        <ha-entity-picker
-          id="entity-picker"
-          label="Entity *"
-          allow-custom-entity
-        ></ha-entity-picker>
-
-        <ha-textfield
-          id="title-input"
-          label="Title (optional)"
-        ></ha-textfield>
-
-        <ha-textfield
-          id="max-entries-input"
-          label="Max entries"
-          type="number"
-        ></ha-textfield>
-
-        <ha-formfield label="Show images">
-          <ha-switch id="show-images-switch"></ha-switch>
-        </ha-formfield>
-
-        <ha-formfield label="Show summary">
-          <ha-switch id="show-summary-switch"></ha-switch>
-        </ha-formfield>
-
-        <ha-formfield label="Show date">
-          <ha-switch id="show-date-switch"></ha-switch>
-        </ha-formfield>
-
-        <ha-formfield label="Compact mode">
-          <ha-switch id="compact-switch"></ha-switch>
-        </ha-formfield>
-
-        <ha-formfield label="Show refresh button">
-          <ha-switch id="show-refresh-switch"></ha-switch>
-        </ha-formfield>
-      </div>
       <style>
-        .card-config {
+        .editor-container {
           display: flex;
           flex-direction: column;
           gap: 16px;
+          padding: 8px 0;
         }
-        ha-formfield {
+        .form-row {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+        .form-row label {
+          font-size: 12px;
+          font-weight: 500;
+          color: var(--secondary-text-color);
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+        }
+        .form-row select,
+        .form-row input[type="text"],
+        .form-row input[type="number"] {
+          background: var(--card-background-color, #1c1c1c);
+          border: 1px solid var(--divider-color, #444);
+          border-radius: 4px;
+          padding: 12px;
+          font-size: 14px;
+          color: var(--primary-text-color);
+          width: 100%;
+          box-sizing: border-box;
+        }
+        .form-row select:focus,
+        .form-row input:focus {
+          outline: none;
+          border-color: var(--primary-color);
+        }
+        .form-row select {
+          cursor: pointer;
+        }
+        .checkbox-row {
           display: flex;
           align-items: center;
+          gap: 12px;
+          padding: 8px 0;
         }
-        ha-entity-picker, ha-textfield {
-          display: block;
-          width: 100%;
+        .checkbox-row input[type="checkbox"] {
+          width: 18px;
+          height: 18px;
+          cursor: pointer;
+          accent-color: var(--primary-color);
+        }
+        .checkbox-row label {
+          font-size: 14px;
+          color: var(--primary-text-color);
+          cursor: pointer;
+          user-select: none;
+        }
+        .hint {
+          font-size: 11px;
+          color: var(--secondary-text-color);
+          margin-top: 2px;
         }
       </style>
+      
+      <div class="editor-container">
+        <div class="form-row">
+          <label>Entity *</label>
+          <select id="entity-select">
+            <option value="">Select a feedparser entity...</option>
+            ${entityOptions}
+          </select>
+          ${entities.length === 0 ? '<div class="hint">No feedparser entities found. Add a feed first.</div>' : ''}
+        </div>
+
+        <div class="form-row">
+          <label>Title (optional)</label>
+          <input type="text" id="title-input" value="${this._config.title || ''}" placeholder="Custom card title">
+        </div>
+
+        <div class="form-row">
+          <label>Max entries</label>
+          <input type="number" id="max-entries-input" value="${this._config.max_entries || ''}" placeholder="Default: 10" min="1" max="100">
+        </div>
+
+        <div class="checkbox-row">
+          <input type="checkbox" id="show-images" ${this._config.show_images !== false ? 'checked' : ''}>
+          <label for="show-images">Show images</label>
+        </div>
+
+        <div class="checkbox-row">
+          <input type="checkbox" id="show-summary" ${this._config.show_summary !== false ? 'checked' : ''}>
+          <label for="show-summary">Show summary</label>
+        </div>
+
+        <div class="checkbox-row">
+          <input type="checkbox" id="show-date" ${this._config.show_date !== false ? 'checked' : ''}>
+          <label for="show-date">Show date</label>
+        </div>
+
+        <div class="checkbox-row">
+          <input type="checkbox" id="compact" ${this._config.compact === true ? 'checked' : ''}>
+          <label for="compact">Compact mode</label>
+        </div>
+
+        <div class="checkbox-row">
+          <input type="checkbox" id="show-refresh" ${this._config.show_refresh !== false ? 'checked' : ''}>
+          <label for="show-refresh">Show refresh button</label>
+        </div>
+      </div>
     `;
 
-    // Configure entity picker
-    const entityPicker = this.querySelector('#entity-picker');
-    entityPicker.hass = this._hass;
-    entityPicker.value = this._config.entity || '';
-    entityPicker.includeDomains = ['sensor'];
-    entityPicker.entityFilter = (entity) => {
-      return entity.attributes && entity.attributes.entries !== undefined;
-    };
-    entityPicker.addEventListener('value-changed', (e) => {
-      if (e.detail && e.detail.value !== undefined) {
-        this._updateConfig('entity', e.detail.value);
-      }
+    // Add event listeners
+    this.querySelector('#entity-select').addEventListener('change', (e) => {
+      this._updateConfig('entity', e.target.value);
     });
 
-    // Title input
-    const titleInput = this.querySelector('#title-input');
-    titleInput.value = this._config.title || '';
-    titleInput.addEventListener('input', (e) => {
+    this.querySelector('#title-input').addEventListener('input', (e) => {
       this._updateConfig('title', e.target.value);
     });
 
-    // Max entries input
-    const maxEntriesInput = this.querySelector('#max-entries-input');
-    maxEntriesInput.value = this._config.max_entries || '';
-    maxEntriesInput.addEventListener('input', (e) => {
+    this.querySelector('#max-entries-input').addEventListener('input', (e) => {
       const val = e.target.value ? parseInt(e.target.value, 10) : undefined;
       this._updateConfig('max_entries', val);
     });
 
-    // Switch inputs
-    const switches = [
-      { id: 'show-images-switch', key: 'show_images', defaultVal: true },
-      { id: 'show-summary-switch', key: 'show_summary', defaultVal: true },
-      { id: 'show-date-switch', key: 'show_date', defaultVal: true },
-      { id: 'compact-switch', key: 'compact', defaultVal: false },
-      { id: 'show-refresh-switch', key: 'show_refresh', defaultVal: true },
-    ];
-
-    switches.forEach(({ id, key, defaultVal }) => {
-      const switchEl = this.querySelector(`#${id}`);
-      const currentVal = this._config[key];
-      switchEl.checked = currentVal !== undefined ? currentVal : defaultVal;
-      switchEl.addEventListener('change', (e) => {
+    ['show-images', 'show-summary', 'show-date', 'compact', 'show-refresh'].forEach(id => {
+      const key = id.replace(/-/g, '_');
+      this.querySelector(`#${id}`).addEventListener('change', (e) => {
         this._updateConfig(key, e.target.checked);
       });
     });
