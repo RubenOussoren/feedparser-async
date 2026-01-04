@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -29,6 +30,16 @@ _LOGGER = logging.getLogger(__name__)
 PLATFORMS: list[Platform] = [Platform.SENSOR]
 
 
+def get_scan_interval_timedelta(options: dict[str, Any]) -> timedelta:
+    """Get scan interval as timedelta from options."""
+    scan_interval = options.get(CONF_SCAN_INTERVAL, int(DEFAULT_SCAN_INTERVAL.total_seconds()))
+    if isinstance(scan_interval, timedelta):
+        return scan_interval
+    if isinstance(scan_interval, int):
+        return timedelta(seconds=scan_interval)
+    return DEFAULT_SCAN_INTERVAL
+
+
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the Feedparser component (YAML configuration)."""
     hass.data.setdefault(DOMAIN, {})
@@ -47,7 +58,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass=hass,
         feed_url=feed_url,
         name=name,
-        update_interval=options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
+        update_interval=get_scan_interval_timedelta(options),
     )
 
     await coordinator.async_config_entry_first_refresh()
@@ -92,7 +103,7 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if CONF_EXCLUSIONS not in new_options:
             new_options[CONF_EXCLUSIONS] = []
         if CONF_SCAN_INTERVAL not in new_options:
-            new_options[CONF_SCAN_INTERVAL] = DEFAULT_SCAN_INTERVAL
+            new_options[CONF_SCAN_INTERVAL] = int(DEFAULT_SCAN_INTERVAL.total_seconds())
 
         entry.version = 2
         hass.config_entries.async_update_entry(entry, data=new_data, options=new_options)

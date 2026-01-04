@@ -56,33 +56,38 @@ def parse_list_input(value: str | list[str]) -> list[str]:
     return []
 
 
-def parse_scan_interval(value: str | int | timedelta | dict[str, Any]) -> timedelta:
-    """Parse scan interval from various formats including new unit-based format."""
+def parse_scan_interval(value: str | int | timedelta | dict[str, Any]) -> int:
+    """Parse scan interval from various formats and return total seconds."""
     if isinstance(value, timedelta):
-        return value
+        return int(value.total_seconds())
     if isinstance(value, dict):
         interval_value = value.get(CONF_SCAN_INTERVAL_VALUE, DEFAULT_SCAN_INTERVAL_VALUE)
         interval_unit = value.get(CONF_SCAN_INTERVAL_UNIT, DEFAULT_SCAN_INTERVAL_UNIT)
         try:
             value_float = float(interval_value)
             unit_seconds = SCAN_INTERVAL_UNITS.get(interval_unit, 3600)
-            return timedelta(seconds=value_float * unit_seconds)
+            return int(value_float * unit_seconds)
         except (ValueError, TypeError):
-            return DEFAULT_SCAN_INTERVAL
+            return int(DEFAULT_SCAN_INTERVAL.total_seconds())
     if isinstance(value, int):
-        return timedelta(hours=value)
+        if value < 60:
+            return value * 3600
+        return value
     if isinstance(value, str):
         try:
             hours = float(value.strip())
-            return timedelta(hours=hours)
+            return int(hours * 3600)
         except ValueError:
             pass
-    return DEFAULT_SCAN_INTERVAL
+    return int(DEFAULT_SCAN_INTERVAL.total_seconds())
 
 
-def format_scan_interval(value: timedelta) -> dict[str, Any]:
-    """Format timedelta as value and unit dict for UI."""
-    total_seconds = int(value.total_seconds())
+def format_scan_interval(value: int | timedelta) -> dict[str, Any]:
+    """Format seconds (int) or timedelta as value and unit dict for UI."""
+    if isinstance(value, timedelta):
+        total_seconds = int(value.total_seconds())
+    else:
+        total_seconds = int(value)
     
     if total_seconds % 86400 == 0:
         return {
@@ -138,7 +143,7 @@ class FeedParserConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         config_entry: config_entries.ConfigEntry,
     ) -> FeedParserOptionsFlowHandler:
         """Get the options flow for this handler."""
-        return FeedParserOptionsFlowHandler(config_entry)
+        return FeedParserOptionsFlowHandler()
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -171,7 +176,7 @@ class FeedParserConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         CONF_REMOVE_SUMMARY_IMG: False,
                         CONF_INCLUSIONS: [],
                         CONF_EXCLUSIONS: [],
-                        CONF_SCAN_INTERVAL: DEFAULT_SCAN_INTERVAL,
+                        CONF_SCAN_INTERVAL: int(DEFAULT_SCAN_INTERVAL.total_seconds()),
                     },
                 )
 
@@ -227,10 +232,6 @@ class FeedParserConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 class FeedParserOptionsFlowHandler(config_entries.OptionsFlow):
     """Handle Feedparser options."""
 
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        """Initialize options flow."""
-        self.config_entry = config_entry
-
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
@@ -276,11 +277,13 @@ class FeedParserOptionsFlowHandler(config_entries.OptionsFlow):
 
         current_date_format = options.get(CONF_DATE_FORMAT, DEFAULT_DATE_FORMAT)
 
-        current_scan_interval = options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
-        if isinstance(current_scan_interval, str):
+        current_scan_interval = options.get(CONF_SCAN_INTERVAL, int(DEFAULT_SCAN_INTERVAL.total_seconds()))
+        if isinstance(current_scan_interval, timedelta):
+            current_scan_interval = int(current_scan_interval.total_seconds())
+        elif isinstance(current_scan_interval, str):
             current_scan_interval = parse_scan_interval(current_scan_interval)
-        elif not isinstance(current_scan_interval, timedelta):
-            current_scan_interval = DEFAULT_SCAN_INTERVAL
+        elif not isinstance(current_scan_interval, int):
+            current_scan_interval = int(DEFAULT_SCAN_INTERVAL.total_seconds())
         
         scan_interval_formatted = format_scan_interval(current_scan_interval)
         

@@ -81,6 +81,15 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
 )
 
 
+def get_scan_interval_timedelta(value: int | timedelta) -> timedelta:
+    """Convert scan interval to timedelta."""
+    if isinstance(value, timedelta):
+        return value
+    if isinstance(value, int):
+        return timedelta(seconds=value)
+    return DEFAULT_SCAN_INTERVAL
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -101,7 +110,9 @@ async def async_setup_entry(
                 remove_summary_image=options.get(CONF_REMOVE_SUMMARY_IMG, False),
                 inclusions=options.get(CONF_INCLUSIONS, []),
                 exclusions=options.get(CONF_EXCLUSIONS, []),
-                scan_interval=options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
+                scan_interval=get_scan_interval_timedelta(
+                    options.get(CONF_SCAN_INTERVAL, int(DEFAULT_SCAN_INTERVAL.total_seconds()))
+                ),
                 local_time=options.get(CONF_LOCAL_TIME, False),
                 coordinator=coordinator,
             ),
@@ -205,7 +216,7 @@ class FeedParserSensor(CoordinatorEntity[FeedParserCoordinator], SensorEntity):
             self.async_on_remove(
                 self.coordinator.async_add_listener(self._handle_coordinator_update)
             )
-            await self._handle_coordinator_update()
+            self._handle_coordinator_update()
         else:
             await self.async_update()
 
