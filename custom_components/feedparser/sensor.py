@@ -41,6 +41,8 @@ from .const import (
 )
 
 MAX_ATTRIBUTE_SIZE = 15000
+MAX_SUMMARY_LENGTH = 200
+ESSENTIAL_FIELDS = {"title", "link", "published", "updated", "summary", "image", "author"}
 from .coordinator import FeedParserCoordinator, FeedParserData
 
 if TYPE_CHECKING:
@@ -347,16 +349,19 @@ class FeedParserSensor(CoordinatorEntity[FeedParserCoordinator], SensorEntity):
         self: FeedParserSensor,
         feed_entry: FeedParserDict,
     ) -> FeedEntryDict:
-        """Generate a sensor entry from a feed entry."""
+        """Generate a sensor entry from a feed entry.
+        
+        Only includes essential fields to stay within Home Assistant's 16KB attribute limit.
+        """
         _LOGGER.debug("Feed %s: Generating sensor entry", self.name)
         sensor_entry: FeedEntryDict = {}
 
+        fields_to_process = self._inclusions if self._inclusions else ESSENTIAL_FIELDS
+
         for key, value in feed_entry.items():
-            if (
-                (self._inclusions and key not in self._inclusions)
-                or ("parsed" in key)
-                or (key in self._exclusions)
-            ):
+            if key not in fields_to_process:
+                continue
+            if "parsed" in key or key in self._exclusions:
                 continue
 
             if key in ["published", "updated", "created", "expired"]:
@@ -378,48 +383,35 @@ class FeedParserSensor(CoordinatorEntity[FeedParserCoordinator], SensorEntity):
                 else:
                     sensor_entry["image"] = str(value)  # type: ignore[literal-required]
 
-            elif key == "content":
-                if isinstance(value, list) and value:
-                    content_item = value[0]
-                    if isinstance(content_item, dict):
-                        content_value = content_item.get("value", "")
-                    else:
-                        content_value = str(content_item)
-                elif isinstance(value, dict):
-                    content_value = value.get("value", "")
-                else:
-                    content_value = str(value) if value is not None else ""
-                sensor_entry["content"] = self._truncate_content(content_value)  # type: ignore[literal-required]
+            elif key == "summary":
+                summary_text = str(value) if value else ""
+                if self._remove_summary_image:
+                    summary_text = re.sub(IMAGE_REGEX, "", summary_text)
+                summary_text = self._strip_html(summary_text)
+                if len(summary_text) > MAX_SUMMARY_LENGTH:
+                    summary_text = summary_text[:MAX_SUMMARY_LENGTH].rsplit(' ', 1)[0] + "..."
+                sensor_entry["summary"] = summary_text  # type: ignore[literal-required]
 
-            else:
+            elif key in ("title", "link", "author"):
                 if isinstance(value, (list, dict)):
                     sensor_entry[key] = str(value)  # type: ignore[literal-required]
                 else:
                     sensor_entry[key] = str(value) if value is not None else ""  # type: ignore[literal-required]
 
-        if "image" in self._inclusions and "image" not in sensor_entry:
+        if "image" not in sensor_entry:
             sensor_entry["image"] = self._process_image(feed_entry)  # type: ignore[literal-required]
 
-        if (
-            "link" in self._inclusions
-            and "link" not in sensor_entry
-            and (processed_link := self._process_link(feed_entry))
-        ):
-            sensor_entry["link"] = processed_link  # type: ignore[literal-required]
-
-        if self._remove_summary_image and "summary" in sensor_entry:
-            sensor_entry["summary"] = re.sub(  # type: ignore[literal-required]
-                IMAGE_REGEX,
-                "",
-                sensor_entry.get("summary", ""),
-            )
-
-        if "summary" in sensor_entry:
-            sensor_entry["summary"] = self._truncate_content(  # type: ignore[literal-required]
-                sensor_entry["summary"]
-            )
+        if "link" not in sensor_entry:
+            if processed_link := self._process_link(feed_entry):
+                sensor_entry["link"] = processed_link  # type: ignore[literal-required]
 
         return sensor_entry
+
+    def _strip_html(self: FeedParserSensor, text: str) -> str:
+        """Strip HTML tags from text."""
+        clean = re.sub(r'<[^>]+>', '', text)
+        clean = re.sub(r'\s+', ' ', clean).strip()
+        return clean
 
     def _truncate_content(self: FeedParserSensor, content: str) -> str:
         """Truncate content to prevent exceeding Home Assistant attribute size limits."""

@@ -5,6 +5,8 @@ import logging
 from datetime import timedelta
 from typing import Any
 
+from homeassistant.components.frontend import add_extra_js_url
+from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_NAME, CONF_SCAN_INTERVAL, Platform
 from homeassistant.core import HomeAssistant
@@ -29,6 +31,9 @@ _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS: list[Platform] = [Platform.SENSOR]
 
+FRONTEND_SCRIPT_URL = "/feedparser/feedparser-card.js"
+_FRONTEND_REGISTERED = False
+
 
 def get_scan_interval_timedelta(options: dict[str, Any]) -> timedelta:
     """Get scan interval as timedelta from options."""
@@ -48,7 +53,20 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Feedparser from a config entry."""
+    global _FRONTEND_REGISTERED
     hass.data.setdefault(DOMAIN, {})
+
+    if not _FRONTEND_REGISTERED:
+        await hass.http.async_register_static_paths([
+            StaticPathConfig(
+                FRONTEND_SCRIPT_URL,
+                hass.config.path("custom_components/feedparser/www/feedparser-card.js"),
+                True,
+            )
+        ])
+        add_extra_js_url(hass, FRONTEND_SCRIPT_URL)
+        _FRONTEND_REGISTERED = True
+        _LOGGER.debug("Registered feedparser-card.js frontend resource")
 
     feed_url = entry.data[CONF_FEED_URL]
     name = entry.data[CONF_NAME]
