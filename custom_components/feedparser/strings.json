@@ -3,28 +3,14 @@
     "step": {
       "user": {
         "title": "Add RSS Feed",
-        "description": "Configure an RSS or Atom feed to monitor.",
+        "description": "Configure an RSS or Atom feed to monitor. You can customize advanced options after setup.",
         "data": {
           "name": "Feed Name",
-          "feed_url": "Feed URL",
-          "date_format": "Date Format",
-          "local_time": "Convert to Local Time",
-          "show_topn": "Number of Entries to Show",
-          "remove_summary_image": "Remove Images from Summary",
-          "inclusions": "Fields to Include",
-          "exclusions": "Fields to Exclude",
-          "scan_interval": "Update Interval"
+          "feed_url": "Feed URL"
         },
         "data_description": {
           "name": "A friendly name for this feed",
-          "feed_url": "The URL of the RSS or Atom feed",
-          "date_format": "Date format string (strftime format)",
-          "local_time": "Convert feed dates to your local timezone",
-          "show_topn": "Maximum number of entries to display",
-          "remove_summary_image": "Remove HTML image tags from summary text",
-          "inclusions": "List of fields to include (leave empty for all)",
-          "exclusions": "List of fields to exclude",
-          "scan_interval": "How often to check for updates"
+          "feed_url": "The URL of the RSS or Atom feed"
         }
       }
     },
@@ -47,7 +33,18 @@
           "remove_summary_image": "Remove Images from Summary",
           "inclusions": "Fields to Include",
           "exclusions": "Fields to Exclude",
-          "scan_interval": "Update Interval"
+          "scan_interval_value": "Update Interval",
+          "scan_interval_unit": "Update Interval Unit"
+        },
+        "data_description": {
+          "date_format": "Select how dates should be displayed",
+          "local_time": "Convert feed dates to your local timezone",
+          "show_topn": "Maximum number of entries to display (set to 0 or leave empty for unlimited)",
+          "remove_summary_image": "Remove HTML image tags from summary text",
+          "inclusions": "Comma-separated list of fields to include (leave empty for all)",
+          "exclusions": "Comma-separated list of fields to exclude",
+          "scan_interval_value": "How often to check for updates",
+          "scan_interval_unit": "Time unit for update interval"
         }
       }
     }

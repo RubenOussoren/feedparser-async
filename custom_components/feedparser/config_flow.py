@@ -13,6 +13,7 @@ from homeassistant import config_entries
 from homeassistant.const import CONF_NAME, CONF_SCAN_INTERVAL
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.data_entry_flow import FlowResult
+from homeassistant.helpers import selector
 from homeassistant.helpers.typing import ConfigType
 
 from .const import (
@@ -22,11 +23,17 @@ from .const import (
     CONF_INCLUSIONS,
     CONF_LOCAL_TIME,
     CONF_REMOVE_SUMMARY_IMG,
+    CONF_SCAN_INTERVAL_UNIT,
+    CONF_SCAN_INTERVAL_VALUE,
     CONF_SHOW_TOPN,
+    DATE_FORMAT_OPTIONS,
     DEFAULT_DATE_FORMAT,
     DEFAULT_SCAN_INTERVAL,
+    DEFAULT_SCAN_INTERVAL_UNIT,
+    DEFAULT_SCAN_INTERVAL_VALUE,
     DEFAULT_TOPN,
     DOMAIN,
+    SCAN_INTERVAL_UNITS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -49,10 +56,19 @@ def parse_list_input(value: str | list[str]) -> list[str]:
     return []
 
 
-def parse_scan_interval(value: str | int | timedelta) -> timedelta:
-    """Parse scan interval from string (hours), int (hours), or timedelta."""
+def parse_scan_interval(value: str | int | timedelta | dict[str, Any]) -> timedelta:
+    """Parse scan interval from various formats including new unit-based format."""
     if isinstance(value, timedelta):
         return value
+    if isinstance(value, dict):
+        interval_value = value.get(CONF_SCAN_INTERVAL_VALUE, DEFAULT_SCAN_INTERVAL_VALUE)
+        interval_unit = value.get(CONF_SCAN_INTERVAL_UNIT, DEFAULT_SCAN_INTERVAL_UNIT)
+        try:
+            value_float = float(interval_value)
+            unit_seconds = SCAN_INTERVAL_UNITS.get(interval_unit, 3600)
+            return timedelta(seconds=value_float * unit_seconds)
+        except (ValueError, TypeError):
+            return DEFAULT_SCAN_INTERVAL
     if isinstance(value, int):
         return timedelta(hours=value)
     if isinstance(value, str):
@@ -64,11 +80,51 @@ def parse_scan_interval(value: str | int | timedelta) -> timedelta:
     return DEFAULT_SCAN_INTERVAL
 
 
-def format_scan_interval(value: timedelta) -> str:
-    """Format timedelta as hours string for UI."""
+def format_scan_interval(value: timedelta) -> dict[str, Any]:
+    """Format timedelta as value and unit dict for UI."""
     total_seconds = int(value.total_seconds())
-    hours = total_seconds // 3600
-    return str(hours)
+    
+    if total_seconds % 86400 == 0:
+        return {
+            CONF_SCAN_INTERVAL_VALUE: total_seconds // 86400,
+            CONF_SCAN_INTERVAL_UNIT: "days",
+        }
+    elif total_seconds % 3600 == 0:
+        return {
+            CONF_SCAN_INTERVAL_VALUE: total_seconds // 3600,
+            CONF_SCAN_INTERVAL_UNIT: "hours",
+        }
+    else:
+        return {
+            CONF_SCAN_INTERVAL_VALUE: total_seconds // 60,
+            CONF_SCAN_INTERVAL_UNIT: "minutes",
+        }
+
+
+def get_date_format_selector(current_format: str | None = None):
+    """Get selector for date format with human-readable options."""
+    options = [
+        selector.SelectOptionDict(
+            value=fmt,
+            label=f"{label} ({fmt})",
+        )
+        for fmt, label in DATE_FORMAT_OPTIONS.items()
+    ]
+    
+    if current_format and current_format not in DATE_FORMAT_OPTIONS:
+        options.append(
+            selector.SelectOptionDict(
+                value=current_format,
+                label=f"Custom: {current_format}",
+            )
+        )
+    
+    return selector.SelectSelector(
+        selector.SelectSelectorConfig(
+            options=options,
+            mode=selector.SelectSelectorMode.DROPDOWN,
+        )
+    )
 
 
 class FeedParserConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -109,23 +165,13 @@ class FeedParserConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         CONF_NAME: name,
                     },
                     options={
-                        CONF_DATE_FORMAT: user_input.get(
-                            CONF_DATE_FORMAT, DEFAULT_DATE_FORMAT
-                        ),
-                        CONF_LOCAL_TIME: user_input.get(CONF_LOCAL_TIME, False),
-                        CONF_SHOW_TOPN: user_input.get(CONF_SHOW_TOPN, DEFAULT_TOPN),
-                        CONF_REMOVE_SUMMARY_IMG: user_input.get(
-                            CONF_REMOVE_SUMMARY_IMG, False
-                        ),
-                        CONF_INCLUSIONS: parse_list_input(
-                            user_input.get(CONF_INCLUSIONS, "")
-                        ),
-                        CONF_EXCLUSIONS: parse_list_input(
-                            user_input.get(CONF_EXCLUSIONS, "")
-                        ),
-                        CONF_SCAN_INTERVAL: parse_scan_interval(
-                            user_input.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
-                        ),
+                        CONF_DATE_FORMAT: DEFAULT_DATE_FORMAT,
+                        CONF_LOCAL_TIME: False,
+                        CONF_SHOW_TOPN: DEFAULT_TOPN,
+                        CONF_REMOVE_SUMMARY_IMG: False,
+                        CONF_INCLUSIONS: [],
+                        CONF_EXCLUSIONS: [],
+                        CONF_SCAN_INTERVAL: DEFAULT_SCAN_INTERVAL,
                     },
                 )
 
@@ -133,17 +179,6 @@ class FeedParserConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             {
                 vol.Required(CONF_NAME): str,
                 vol.Required(CONF_FEED_URL): str,
-                vol.Optional(
-                    CONF_DATE_FORMAT, default=DEFAULT_DATE_FORMAT
-                ): str,
-                vol.Optional(CONF_LOCAL_TIME, default=False): bool,
-                vol.Optional(CONF_SHOW_TOPN, default=DEFAULT_TOPN): vol.Coerce(int),
-                vol.Optional(CONF_REMOVE_SUMMARY_IMG, default=False): bool,
-                vol.Optional(CONF_INCLUSIONS, default=""): str,
-                vol.Optional(CONF_EXCLUSIONS, default=""): str,
-                vol.Optional(
-                    CONF_SCAN_INTERVAL, default=format_scan_interval(DEFAULT_SCAN_INTERVAL)
-                ): str,
             }
         )
 
@@ -208,9 +243,25 @@ class FeedParserOptionsFlowHandler(config_entries.OptionsFlow):
             processed_input[CONF_EXCLUSIONS] = parse_list_input(
                 user_input.get(CONF_EXCLUSIONS, "")
             )
-            processed_input[CONF_SCAN_INTERVAL] = parse_scan_interval(
-                user_input.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
-            )
+            
+            show_topn = user_input.get(CONF_SHOW_TOPN, DEFAULT_TOPN)
+            if show_topn == 0 or show_topn is None:
+                show_topn = 9999
+            processed_input[CONF_SHOW_TOPN] = show_topn
+            
+            scan_interval_dict = {
+                CONF_SCAN_INTERVAL_VALUE: user_input.get(
+                    CONF_SCAN_INTERVAL_VALUE, DEFAULT_SCAN_INTERVAL_VALUE
+                ),
+                CONF_SCAN_INTERVAL_UNIT: user_input.get(
+                    CONF_SCAN_INTERVAL_UNIT, DEFAULT_SCAN_INTERVAL_UNIT
+                ),
+            }
+            processed_input[CONF_SCAN_INTERVAL] = parse_scan_interval(scan_interval_dict)
+            
+            processed_input.pop(CONF_SCAN_INTERVAL_VALUE, None)
+            processed_input.pop(CONF_SCAN_INTERVAL_UNIT, None)
+            
             return self.async_create_entry(title="", data=processed_input)
 
         options = self.config_entry.options
@@ -223,19 +274,35 @@ class FeedParserOptionsFlowHandler(config_entries.OptionsFlow):
                 return value
             return ""
 
+        current_date_format = options.get(CONF_DATE_FORMAT, DEFAULT_DATE_FORMAT)
+
+        current_scan_interval = options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
+        if isinstance(current_scan_interval, str):
+            current_scan_interval = parse_scan_interval(current_scan_interval)
+        elif not isinstance(current_scan_interval, timedelta):
+            current_scan_interval = DEFAULT_SCAN_INTERVAL
+        
+        scan_interval_formatted = format_scan_interval(current_scan_interval)
+        
+        current_show_topn = options.get(CONF_SHOW_TOPN, DEFAULT_TOPN)
+        if current_show_topn == 9999:
+            display_show_topn = 0
+        else:
+            display_show_topn = current_show_topn
+
         data_schema = vol.Schema(
             {
                 vol.Optional(
                     CONF_DATE_FORMAT,
-                    default=options.get(CONF_DATE_FORMAT, DEFAULT_DATE_FORMAT),
-                ): str,
+                    default=current_date_format,
+                ): get_date_format_selector(current_date_format),
                 vol.Optional(
                     CONF_LOCAL_TIME,
                     default=options.get(CONF_LOCAL_TIME, False),
                 ): bool,
                 vol.Optional(
                     CONF_SHOW_TOPN,
-                    default=options.get(CONF_SHOW_TOPN, DEFAULT_TOPN),
+                    default=display_show_topn,
                 ): vol.Coerce(int),
                 vol.Optional(
                     CONF_REMOVE_SUMMARY_IMG,
@@ -250,11 +317,26 @@ class FeedParserOptionsFlowHandler(config_entries.OptionsFlow):
                     default=format_list_for_ui(options.get(CONF_EXCLUSIONS, [])),
                 ): str,
                 vol.Optional(
-                    CONF_SCAN_INTERVAL,
-                    default=format_scan_interval(
-                        options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
+                    CONF_SCAN_INTERVAL_VALUE,
+                    default=scan_interval_formatted.get(
+                        CONF_SCAN_INTERVAL_VALUE, DEFAULT_SCAN_INTERVAL_VALUE
                     ),
-                ): str,
+                ): vol.Coerce(int),
+                vol.Optional(
+                    CONF_SCAN_INTERVAL_UNIT,
+                    default=scan_interval_formatted.get(
+                        CONF_SCAN_INTERVAL_UNIT, DEFAULT_SCAN_INTERVAL_UNIT
+                    ),
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            selector.SelectOptionDict(value="minutes", label="Minutes"),
+                            selector.SelectOptionDict(value="hours", label="Hours"),
+                            selector.SelectOptionDict(value="days", label="Days"),
+                        ],
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
+                ),
             }
         )
 
