@@ -39,6 +39,8 @@ from .const import (
     IMAGE_EXTENSIONS,
     IMAGE_REGEX,
 )
+
+MAX_ATTRIBUTE_SIZE = 15000
 from .coordinator import FeedParserCoordinator, FeedParserData
 
 if TYPE_CHECKING:
@@ -250,7 +252,7 @@ class FeedParserSensor(CoordinatorEntity[FeedParserCoordinator], SensorEntity):
         if self._coordinator:
             return
 
-        _LOGGER.warning(
+        _LOGGER.debug(
             "Feed %s: Using legacy update method. Consider migrating to Config Flow.",
             self.name,
         )
@@ -334,13 +336,14 @@ class FeedParserSensor(CoordinatorEntity[FeedParserCoordinator], SensorEntity):
                 if isinstance(value, list) and value:
                     content_item = value[0]
                     if isinstance(content_item, dict):
-                        sensor_entry["content"] = content_item.get("value", "")  # type: ignore[literal-required]
+                        content_value = content_item.get("value", "")
                     else:
-                        sensor_entry["content"] = str(content_item)  # type: ignore[literal-required]
+                        content_value = str(content_item)
                 elif isinstance(value, dict):
-                    sensor_entry["content"] = value.get("value", "")  # type: ignore[literal-required]
+                    content_value = value.get("value", "")
                 else:
-                    sensor_entry["content"] = str(value) if value is not None else ""  # type: ignore[literal-required]
+                    content_value = str(value) if value is not None else ""
+                sensor_entry["content"] = self._truncate_content(content_value)  # type: ignore[literal-required]
 
             else:
                 if isinstance(value, (list, dict)):
@@ -365,7 +368,21 @@ class FeedParserSensor(CoordinatorEntity[FeedParserCoordinator], SensorEntity):
                 sensor_entry.get("summary", ""),
             )
 
+        if "summary" in sensor_entry:
+            sensor_entry["summary"] = self._truncate_content(  # type: ignore[literal-required]
+                sensor_entry["summary"]
+            )
+
         return sensor_entry
+
+    def _truncate_content(self: FeedParserSensor, content: str) -> str:
+        """Truncate content to prevent exceeding Home Assistant attribute size limits."""
+        if len(content.encode("utf-8")) > MAX_ATTRIBUTE_SIZE:
+            truncated = content[:MAX_ATTRIBUTE_SIZE]
+            while len(truncated.encode("utf-8")) > MAX_ATTRIBUTE_SIZE:
+                truncated = truncated[:-1]
+            return truncated + "... [truncated]"
+        return content
 
     def _parse_date(self: FeedParserSensor, date: str | None) -> datetime:
         """Parse a date string to datetime object."""

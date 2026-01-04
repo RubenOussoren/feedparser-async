@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from datetime import timedelta
 from typing import Any
 from urllib.parse import urlparse
 
@@ -46,6 +47,28 @@ def parse_list_input(value: str | list[str]) -> list[str]:
             return []
         return [item.strip() for item in value.split(",") if item.strip()]
     return []
+
+
+def parse_scan_interval(value: str | int | timedelta) -> timedelta:
+    """Parse scan interval from string (hours), int (hours), or timedelta."""
+    if isinstance(value, timedelta):
+        return value
+    if isinstance(value, int):
+        return timedelta(hours=value)
+    if isinstance(value, str):
+        try:
+            hours = float(value.strip())
+            return timedelta(hours=hours)
+        except ValueError:
+            pass
+    return DEFAULT_SCAN_INTERVAL
+
+
+def format_scan_interval(value: timedelta) -> str:
+    """Format timedelta as hours string for UI."""
+    total_seconds = int(value.total_seconds())
+    hours = total_seconds // 3600
+    return str(hours)
 
 
 class FeedParserConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -100,8 +123,8 @@ class FeedParserConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         CONF_EXCLUSIONS: parse_list_input(
                             user_input.get(CONF_EXCLUSIONS, "")
                         ),
-                        CONF_SCAN_INTERVAL: user_input.get(
-                            CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL
+                        CONF_SCAN_INTERVAL: parse_scan_interval(
+                            user_input.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
                         ),
                     },
                 )
@@ -119,8 +142,8 @@ class FeedParserConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Optional(CONF_INCLUSIONS, default=""): str,
                 vol.Optional(CONF_EXCLUSIONS, default=""): str,
                 vol.Optional(
-                    CONF_SCAN_INTERVAL, default=DEFAULT_SCAN_INTERVAL
-                ): cv.time_period,
+                    CONF_SCAN_INTERVAL, default=format_scan_interval(DEFAULT_SCAN_INTERVAL)
+                ): str,
             }
         )
 
@@ -159,8 +182,8 @@ class FeedParserConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 CONF_EXCLUSIONS: parse_list_input(
                     import_info.get(CONF_EXCLUSIONS, [])
                 ),
-                CONF_SCAN_INTERVAL: import_info.get(
-                    CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL
+                CONF_SCAN_INTERVAL: parse_scan_interval(
+                    import_info.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
                 ),
             },
         )
@@ -184,6 +207,9 @@ class FeedParserOptionsFlowHandler(config_entries.OptionsFlow):
             )
             processed_input[CONF_EXCLUSIONS] = parse_list_input(
                 user_input.get(CONF_EXCLUSIONS, "")
+            )
+            processed_input[CONF_SCAN_INTERVAL] = parse_scan_interval(
+                user_input.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
             )
             return self.async_create_entry(title="", data=processed_input)
 
@@ -225,8 +251,10 @@ class FeedParserOptionsFlowHandler(config_entries.OptionsFlow):
                 ): str,
                 vol.Optional(
                     CONF_SCAN_INTERVAL,
-                    default=options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
-                ): cv.time_period,
+                    default=format_scan_interval(
+                        options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
+                    ),
+                ): str,
             }
         )
 
