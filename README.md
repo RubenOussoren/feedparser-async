@@ -244,16 +244,16 @@ show_refresh: true
 
 **Card Options:**
 
-| Option         | Type    | Default      | Description                    |
-| -------------- | ------- | ------------ | ------------------------------ |
-| `entity`       | string  | **Required** | Feed sensor entity ID          |
-| `title`        | string  | Entity name  | Card title                     |
-| `max_entries`  | number  | All entries  | Maximum entries to display     |
-| `show_images`  | boolean | `true`       | Show entry images              |
-| `show_summary` | boolean | `true`       | Show entry summaries           |
-| `show_date`    | boolean | `true`       | Show publication dates         |
-| `compact`      | boolean | `false`      | Compact list view              |
-| `show_refresh` | boolean | `true`       | Show manual refresh button     |
+| Option         | Type    | Default      | Description                |
+| -------------- | ------- | ------------ | -------------------------- |
+| `entity`       | string  | **Required** | Feed sensor entity ID      |
+| `title`        | string  | Entity name  | Card title                 |
+| `max_entries`  | number  | All entries  | Maximum entries to display |
+| `show_images`  | boolean | `true`       | Show entry images          |
+| `show_summary` | boolean | `true`       | Show entry summaries       |
+| `show_date`    | boolean | `true`       | Show publication dates     |
+| `compact`      | boolean | `false`      | Compact list view          |
+| `show_refresh` | boolean | `true`       | Show manual refresh button |
 
 ### With list-card
 
