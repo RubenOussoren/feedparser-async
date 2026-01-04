@@ -8,19 +8,15 @@ import re
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, TypedDict
 
-import feedparser  # type: ignore[import]
-import homeassistant.helpers.config_validation as cv
-import voluptuous as vol
 from dateutil import parser
 from feedparser import FeedParserDict
-from homeassistant.components.sensor import PLATFORM_SCHEMA, SensorEntity
+from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_NAME, CONF_SCAN_INTERVAL
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
-from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 from homeassistant.util import dt
 
 from .const import (
@@ -39,16 +35,15 @@ from .const import (
     IMAGE_EXTENSIONS,
     IMAGE_REGEX,
 )
-
-MAX_ATTRIBUTE_SIZE = 15000
-MAX_SUMMARY_LENGTH = 200
-ESSENTIAL_FIELDS = {"title", "link", "published", "updated", "summary", "image", "author"}
 from .coordinator import FeedParserCoordinator, FeedParserData
 
 if TYPE_CHECKING:
     pass
 
 _LOGGER: logging.Logger = logging.getLogger(__name__)
+
+MAX_SUMMARY_LENGTH = 200
+ESSENTIAL_FIELDS = {"title", "link", "published", "updated", "summary", "image", "author"}
 
 
 class FeedEntryDict(TypedDict, total=False):
@@ -66,21 +61,6 @@ class FeedEntryDict(TypedDict, total=False):
     image: str
     author: str
     category: str
-
-
-PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
-    {
-        vol.Required(CONF_FEED_URL): cv.string,
-        vol.Required(CONF_NAME): cv.string,
-        vol.Required(CONF_DATE_FORMAT, default=DEFAULT_DATE_FORMAT): cv.string,
-        vol.Optional(CONF_LOCAL_TIME, default=False): cv.boolean,
-        vol.Optional(CONF_SHOW_TOPN, default=DEFAULT_TOPN): cv.positive_int,
-        vol.Optional(CONF_REMOVE_SUMMARY_IMG, default=False): cv.boolean,
-        vol.Optional(CONF_INCLUSIONS, default=[]): vol.All(cv.ensure_list, [cv.string]),
-        vol.Optional(CONF_EXCLUSIONS, default=[]): vol.All(cv.ensure_list, [cv.string]),
-        vol.Optional(CONF_SCAN_INTERVAL, default=DEFAULT_SCAN_INTERVAL): cv.time_period,
-    },
-)
 
 
 def get_scan_interval_timedelta(value: int | timedelta) -> timedelta:
@@ -122,32 +102,6 @@ async def async_setup_entry(
     )
 
 
-async def async_setup_platform(
-    hass: HomeAssistant,
-    config: ConfigType,
-    async_add_devices: AddEntitiesCallback,
-    discovery_info: DiscoveryInfoType | None = None,  # noqa: ARG001
-) -> None:
-    """Set up the Feedparser sensor (YAML configuration)."""
-    async_add_devices(
-        [
-            FeedParserSensor(
-                hass=hass,
-                feed=config[CONF_FEED_URL],
-                name=config[CONF_NAME],
-                date_format=config[CONF_DATE_FORMAT],
-                show_topn=config[CONF_SHOW_TOPN],
-                remove_summary_image=config[CONF_REMOVE_SUMMARY_IMG],
-                inclusions=config[CONF_INCLUSIONS],
-                exclusions=config[CONF_EXCLUSIONS],
-                scan_interval=config[CONF_SCAN_INTERVAL],
-                local_time=config[CONF_LOCAL_TIME],
-            ),
-        ],
-        update_before_add=True,
-    )
-
-
 class FeedParserSensor(CoordinatorEntity[FeedParserCoordinator], SensorEntity):
     """Representation of a Feedparser sensor."""
 
@@ -165,15 +119,12 @@ class FeedParserSensor(CoordinatorEntity[FeedParserCoordinator], SensorEntity):
         remove_summary_image: bool,
         exclusions: list[str | None],
         inclusions: list[str | None],
-        scan_interval: timedelta | None,
+        scan_interval: timedelta,
         local_time: bool,
-        coordinator: FeedParserCoordinator | None = None,
+        coordinator: FeedParserCoordinator,
     ) -> None:
         """Initialize the Feedparser sensor."""
-        if coordinator:
-            super().__init__(coordinator)
-        else:
-            super().__init__(None)  # type: ignore[arg-type]
+        super().__init__(coordinator)
 
         self.hass = hass
         self._feed = feed
@@ -195,7 +146,6 @@ class FeedParserSensor(CoordinatorEntity[FeedParserCoordinator], SensorEntity):
         self._last_entry_date: str | None = None
         self._attr_extra_state_attributes = {"entries": self._entries}
         self._attr_attribution = "Data retrieved using RSS feedparser"
-        self._coordinator = coordinator
         _LOGGER.debug("Feed %s: FeedParserSensor initialized", self.name)
 
     @property
@@ -212,20 +162,15 @@ class FeedParserSensor(CoordinatorEntity[FeedParserCoordinator], SensorEntity):
     @property
     def available(self: FeedParserSensor) -> bool:
         """Return if entity is available."""
-        if self._coordinator:
-            return self.coordinator.last_update_success
-        return True
+        return self.coordinator.last_update_success
 
     async def async_added_to_hass(self: FeedParserSensor) -> None:
         """When entity is added to hass."""
-        if self._coordinator:
-            await super().async_added_to_hass()
-            self.async_on_remove(
-                self.coordinator.async_add_listener(self._handle_coordinator_update)
-            )
-            self._handle_coordinator_update()
-        else:
-            await self.async_update()
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self._handle_coordinator_update)
+        )
+        self._handle_coordinator_update()
 
     def _handle_coordinator_update(self: FeedParserSensor) -> None:
         """Handle updated data from the coordinator."""
@@ -243,13 +188,11 @@ class FeedParserSensor(CoordinatorEntity[FeedParserCoordinator], SensorEntity):
         data: FeedParserData = self.coordinator.data
         valid_entries = data.valid_entries
 
-        # Extract feed metadata
         feed_info = data.feed.feed if hasattr(data.feed, 'feed') else {}
         self._feed_title = feed_info.get('title', self.name)
         self._feed_link = feed_info.get('link', self._feed)
         self._feed_description = feed_info.get('subtitle') or feed_info.get('description', '')
-        
-        # Try to get feed image
+
         if 'image' in feed_info:
             img = feed_info['image']
             if isinstance(img, dict):
@@ -279,8 +222,7 @@ class FeedParserSensor(CoordinatorEntity[FeedParserCoordinator], SensorEntity):
         self._entries.extend(
             self._generate_entries(valid_entries[:entry_count])
         )
-        
-        # Get the date of the most recent entry
+
         if self._entries and self._entries[0].get('published'):
             self._last_entry_date = self._entries[0].get('published')
         elif self._entries and self._entries[0].get('updated'):
@@ -294,46 +236,6 @@ class FeedParserSensor(CoordinatorEntity[FeedParserCoordinator], SensorEntity):
             len(self.feed_entries),
         )
         self.async_write_ha_state()
-
-    async def async_update(self: FeedParserSensor) -> None:
-        """Parse the feed and update the state of the sensor (YAML mode)."""
-        if self._coordinator:
-            return
-
-        _LOGGER.debug(
-            "Feed %s: Using legacy update method. Consider migrating to Config Flow.",
-            self.name,
-        )
-
-        from .coordinator import FeedParserCoordinator
-
-        temp_coordinator = FeedParserCoordinator(
-            hass=self.hass,
-            feed_url=self._feed,
-            name=self.name,
-            update_interval=self._scan_interval or DEFAULT_SCAN_INTERVAL,
-        )
-
-        try:
-            data = await temp_coordinator._async_update_data()
-            await temp_coordinator.async_shutdown()
-
-            if not data.valid_entries:
-                self._attr_native_value = None
-                self._entries.clear()
-                return
-
-            entry_count = min(len(data.valid_entries), self._show_topn)
-            self._attr_native_value = entry_count
-
-            self._entries.clear()
-            self._entries.extend(
-                self._generate_entries(data.valid_entries[:entry_count])
-            )
-        except Exception as err:
-            _LOGGER.error("Feed %s: Error updating feed: %s", self.name, err)
-            self._attr_native_value = None
-            self._entries.clear()
 
     def _generate_entries(
         self: FeedParserSensor,
@@ -350,7 +252,7 @@ class FeedParserSensor(CoordinatorEntity[FeedParserCoordinator], SensorEntity):
         feed_entry: FeedParserDict,
     ) -> FeedEntryDict:
         """Generate a sensor entry from a feed entry.
-        
+
         Only includes essential fields to stay within Home Assistant's 16KB attribute limit.
         """
         _LOGGER.debug("Feed %s: Generating sensor entry", self.name)
@@ -412,15 +314,6 @@ class FeedParserSensor(CoordinatorEntity[FeedParserCoordinator], SensorEntity):
         clean = re.sub(r'<[^>]+>', '', text)
         clean = re.sub(r'\s+', ' ', clean).strip()
         return clean
-
-    def _truncate_content(self: FeedParserSensor, content: str) -> str:
-        """Truncate content to prevent exceeding Home Assistant attribute size limits."""
-        if len(content.encode("utf-8")) > MAX_ATTRIBUTE_SIZE:
-            truncated = content[:MAX_ATTRIBUTE_SIZE]
-            while len(truncated.encode("utf-8")) > MAX_ATTRIBUTE_SIZE:
-                truncated = truncated[:-1]
-            return truncated + "... [truncated]"
-        return content
 
     def _parse_date(self: FeedParserSensor, date: str | None) -> datetime:
         """Parse a date string to datetime object."""

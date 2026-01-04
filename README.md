@@ -2,7 +2,7 @@
 
 > Modernized fork of [custom-components/feedparser](https://github.com/custom-components/feedparser) with async/await support for Home Assistant 2026+
 
-RSS feed custom component for [Home Assistant](https://www.home-assistant.io/) which can be used in conjunction with the custom [Lovelace](https://www.home-assistant.io/lovelace) [list-card](https://github.com/custom-cards/list-card)
+RSS feed custom component for [Home Assistant](https://www.home-assistant.io/) which can be used in conjunction with the custom Lovelace card included or [list-card](https://github.com/custom-cards/list-card)
 
 [![GitHub Release][releases-shield]][releases]
 [![License][license-shield]](LICENSE.md)
@@ -10,9 +10,9 @@ RSS feed custom component for [Home Assistant](https://www.home-assistant.io/) w
 ![Project Maintenance][maintenance-shield]
 [![GitHub Activity][commits-shield]][commits]
 
-## Changes from Original
+## Features
 
-- **Config Flow UI** - Add and manage feeds through Settings > Integrations (no YAML required)
+- **Config Flow UI** - Add and manage feeds through Settings > Integrations
 - **Async/await pattern** - Non-blocking I/O using aiohttp instead of requests
 - **DataUpdateCoordinator** - Centralized feed fetching with proper async handling
 - **Device Registry** - Feeds appear as devices with proper grouping
@@ -32,6 +32,7 @@ RSS feed custom component for [Home Assistant](https://www.home-assistant.io/) w
    as a Custom Repository (use **Integration** as the category).
 2. The `feedparser` page should automatically load (or find it in the HACS Store)
 3. Click `Install`
+4. Restart Home Assistant
 
 ### Manual Installation
 
@@ -46,9 +47,7 @@ Then restart Home Assistant.
 
 ## Configuration
 
-### Config Flow (Recommended - No YAML Required!)
-
-**You no longer need YAML configuration!** Add and manage feeds entirely through the Home Assistant UI.
+Add and manage feeds entirely through the Home Assistant UI:
 
 1. Go to **Settings** > **Devices & Services**
 2. Click **Add Integration**
@@ -56,89 +55,16 @@ Then restart Home Assistant.
 4. Enter your feed details:
    - **Feed Name**: A friendly name for this feed
    - **Feed URL**: The RSS/Atom feed URL
-   - **Date Format**: Optional strftime format (default: `%a, %b %d %I:%M %p`)
-   - **Other options**: Configure as needed
 5. Click **Submit**
 
-You can edit feed settings later by clicking on the integration and selecting **Options**.
+You can edit feed settings later by clicking on the integration and selecting **Options**:
 
-### YAML Configuration (Optional - For Advanced Users)
-
-YAML configuration is still supported for backward compatibility or if you prefer YAML. Existing YAML configs will continue to work and can be imported into Config Flow automatically.
-
-**Example configuration.yaml:**
-
-```yaml
-sensor:
-  - platform: feedparser
-    name: Engineering Feed
-    feed_url: "https://www.sciencedaily.com/rss/matter_energy/engineering.xml"
-    date_format: "%a, %d %b %Y %H:%M:%S"
-    local_time: true
-    scan_interval:
-      hours: 6
-    inclusions:
-      - title
-      - link
-      - summary
-      - published
-
-  - platform: feedparser
-    name: World News
-    feed_url: "https://feeds.npr.org/1004/rss.xml"
-    local_time: true
-    show_topn: 10
-    inclusions:
-      - title
-      - link
-      - summary
-      - published
-      - author
-      - content
-      - image
-```
-
-## Field Mapping
-
-Feedparser normalizes RSS field names. Use these names in your `inclusions`:
-
-| RSS Field         | Use in Config | Description                            |
-| ----------------- | ------------- | -------------------------------------- |
-| `title`           | `title`       | Article headline                       |
-| `link`            | `link`        | URL to article                         |
-| `description`     | `summary`     | Short description/excerpt              |
-| `content:encoded` | `content`     | Full article content (HTML, as a list) |
-| `pubDate`         | `published`   | Publication date                       |
-| `dc:creator`      | `author`      | Writer's name                          |
-| `guid`            | `id`          | Unique identifier                      |
-| `enclosure`       | `image`       | Article thumbnail/image                |
-| `updated`         | `updated`     | Last updated date                      |
-| `created`         | `created`     | Creation date                          |
-| `expired`         | `expired`     | Expiration date                        |
-
-> **Note:** The `content` field is returned as a list of dictionaries. Access the HTML with `entry.content[0].value` in templates.
-
-### Image Handling
-
-Add `image` to your `inclusions` list to extract images from feed entries. The integration will:
-
-1. Look for enclosures with image MIME types
-2. Search for `<img>` tags in the summary
-3. Fall back to the Home Assistant logo if no image is found
-
-## Configuration Variables
-
-| Key             | Required | Default              | Description                     |
-| --------------- | -------- | -------------------- | ------------------------------- |
-| `platform`      | Yes      | -                    | Must be `feedparser`            |
-| `name`          | Yes      | -                    | Name for your feed sensor       |
-| `feed_url`      | Yes      | -                    | The RSS/Atom feed URL           |
-| `date_format`   | No       | `%a, %b %d %I:%M %p` | strftime format for dates       |
-| `local_time`    | No       | `false`              | Convert dates to local timezone |
-| `show_topn`     | No       | all                  | Limit number of entries         |
-| `inclusions`    | No       | all fields           | Fields to include               |
-| `exclusions`    | No       | none                 | Fields to exclude               |
-| `scan_interval` | No       | 1 hour               | Update frequency                |
+| Option          | Default              | Description                     |
+| --------------- | -------------------- | ------------------------------- |
+| Date Format     | `%a, %b %d %I:%M %p` | strftime format for dates       |
+| Local Time      | `false`              | Convert dates to local timezone |
+| Max Entries     | `50`                 | Limit number of entries         |
+| Update Interval | `1 hour`             | How often to fetch the feed     |
 
 ## Sensor Attributes
 
@@ -149,62 +75,12 @@ Each feed sensor provides:
 - **Device**: Feeds are grouped under a "Feedparser" device in the device registry
 - **Unique ID**: Based on feed URL hash (entities survive restarts and are editable)
 - **Attributes**:
-  - `entries`: List of feed items with requested fields
-  - `attribution`: Data source attribution
-
-## Example: Morning Briefing
-
-```yaml
-sensor:
-  # Finance News
-  - platform: feedparser
-    name: Finance Headlines
-    feed_url: "https://www.bnnbloomberg.ca/arc/outboundfeeds/rss/?outputType=xml"
-    date_format: "%a, %d %b %Y %H:%M:%S"
-    local_time: true
-    scan_interval:
-      hours: 3
-    inclusions:
-      - title
-      - link
-      - summary
-      - published
-      - author
-      - image
-
-  # World News
-  - platform: feedparser
-    name: World Headlines
-    feed_url: "https://feeds.npr.org/1004/rss.xml"
-    date_format: "%a, %d %b %Y %H:%M:%S"
-    local_time: true
-    scan_interval:
-      hours: 3
-    inclusions:
-      - title
-      - link
-      - summary
-      - published
-      - author
-      - content
-      - image
-
-  # Tech News
-  - platform: feedparser
-    name: Tech Headlines
-    feed_url: "https://feeds.arstechnica.com/arstechnica/technology-lab"
-    date_format: "%a, %d %b %Y %H:%M:%S"
-    local_time: true
-    scan_interval:
-      hours: 6
-    inclusions:
-      - title
-      - link
-      - summary
-      - published
-      - author
-      - image
-```
+  - `entries`: List of feed items (title, link, summary, published, image, author)
+  - `feed_url`: The RSS feed URL
+  - `feed_title`: The feed's title
+  - `feed_link`: The feed's website link
+  - `feed_description`: The feed's description
+  - `last_entry_date`: Date of the most recent entry
 
 ## Using with Lovelace
 
@@ -299,14 +175,13 @@ This is normal for custom components. Restart Home Assistant to resolve.
 
 ### Dates showing incorrectly
 
-- Try different `date_format` strings
-- Enable `local_time: true` for local timezone conversion
-- Omit timezone specifiers (`%Z`, `%z`) - feedparser handles them internally
+- Edit the integration options and try different date format strings
+- Enable "Local Time" for local timezone conversion
 
 ### Empty entries
 
 - Verify the feed has content by visiting the URL in a browser
-- Check that `inclusions` use the correct feedparser field names (e.g., `summary` not `description`)
+- Some feeds may not include all fields (summary, image, etc.)
 
 ## Credits
 
