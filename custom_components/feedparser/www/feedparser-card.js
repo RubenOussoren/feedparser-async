@@ -421,27 +421,46 @@ customElements.define('feedparser-card', FeedParserCard);
 
 // Card configuration UI
 class FeedParserCardEditor extends HTMLElement {
+  constructor() {
+    super();
+    this._config = {};
+    this._hass = null;
+  }
+
   setConfig(config) {
     this._config = { ...config };
-    this.render();
+    this._render();
   }
 
   set hass(hass) {
     this._hass = hass;
-    if (this._entityPicker) {
-      this._entityPicker.hass = hass;
+    // Update entity picker if it exists
+    const picker = this.querySelector('ha-entity-picker');
+    if (picker) {
+      picker.hass = hass;
+    }
+    // Re-render if we have config but haven't rendered yet
+    if (this._config && !this.querySelector('.card-config')) {
+      this._render();
     }
   }
 
-  render() {
-    if (!this._config) return;
+  _render() {
+    if (!this._hass) return;
+
+    // Get feedparser entities for suggestions
+    const feedparserEntities = Object.keys(this._hass.states)
+      .filter(e => e.startsWith('sensor.') && 
+        this._hass.states[e].attributes.entries !== undefined)
+      .sort();
 
     this.innerHTML = `
       <div class="card-config">
-        <div class="entity-row">
-          <label>Entity *</label>
-          <div id="entity-picker-container"></div>
-        </div>
+        <ha-entity-picker
+          id="entity-picker"
+          label="Entity *"
+          allow-custom-entity
+        ></ha-entity-picker>
 
         <ha-textfield
           id="title-input"
@@ -479,40 +498,31 @@ class FeedParserCardEditor extends HTMLElement {
           display: flex;
           flex-direction: column;
           gap: 16px;
-          padding: 16px;
-        }
-        .entity-row {
-          display: flex;
-          flex-direction: column;
-          gap: 4px;
-        }
-        .entity-row label {
-          font-weight: 500;
-          font-size: 12px;
-          color: var(--secondary-text-color);
         }
         ha-formfield {
           display: flex;
           align-items: center;
         }
-        ha-entity-picker {
+        ha-entity-picker, ha-textfield {
           display: block;
           width: 100%;
         }
       </style>
     `;
 
-    // Create and configure entity picker
-    const container = this.querySelector('#entity-picker-container');
-    this._entityPicker = document.createElement('ha-entity-picker');
-    this._entityPicker.hass = this._hass;
-    this._entityPicker.value = this._config.entity || '';
-    this._entityPicker.allowCustomEntity = true;
-    this._entityPicker.includeDomains = ['sensor'];
-    this._entityPicker.addEventListener('value-changed', (e) => {
-      this._updateConfig('entity', e.detail.value);
+    // Configure entity picker
+    const entityPicker = this.querySelector('#entity-picker');
+    entityPicker.hass = this._hass;
+    entityPicker.value = this._config.entity || '';
+    entityPicker.includeDomains = ['sensor'];
+    entityPicker.entityFilter = (entity) => {
+      return entity.attributes && entity.attributes.entries !== undefined;
+    };
+    entityPicker.addEventListener('value-changed', (e) => {
+      if (e.detail && e.detail.value !== undefined) {
+        this._updateConfig('entity', e.detail.value);
+      }
     });
-    container.appendChild(this._entityPicker);
 
     // Title input
     const titleInput = this.querySelector('#title-input');
@@ -530,40 +540,25 @@ class FeedParserCardEditor extends HTMLElement {
     });
 
     // Switch inputs
-    const showImagesSwitch = this.querySelector('#show-images-switch');
-    showImagesSwitch.checked = this._config.show_images !== false;
-    showImagesSwitch.addEventListener('change', (e) => {
-      this._updateConfig('show_images', e.target.checked);
-    });
+    const switches = [
+      { id: 'show-images-switch', key: 'show_images', defaultVal: true },
+      { id: 'show-summary-switch', key: 'show_summary', defaultVal: true },
+      { id: 'show-date-switch', key: 'show_date', defaultVal: true },
+      { id: 'compact-switch', key: 'compact', defaultVal: false },
+      { id: 'show-refresh-switch', key: 'show_refresh', defaultVal: true },
+    ];
 
-    const showSummarySwitch = this.querySelector('#show-summary-switch');
-    showSummarySwitch.checked = this._config.show_summary !== false;
-    showSummarySwitch.addEventListener('change', (e) => {
-      this._updateConfig('show_summary', e.target.checked);
-    });
-
-    const showDateSwitch = this.querySelector('#show-date-switch');
-    showDateSwitch.checked = this._config.show_date !== false;
-    showDateSwitch.addEventListener('change', (e) => {
-      this._updateConfig('show_date', e.target.checked);
-    });
-
-    const compactSwitch = this.querySelector('#compact-switch');
-    compactSwitch.checked = this._config.compact === true;
-    compactSwitch.addEventListener('change', (e) => {
-      this._updateConfig('compact', e.target.checked);
-    });
-
-    const showRefreshSwitch = this.querySelector('#show-refresh-switch');
-    showRefreshSwitch.checked = this._config.show_refresh !== false;
-    showRefreshSwitch.addEventListener('change', (e) => {
-      this._updateConfig('show_refresh', e.target.checked);
+    switches.forEach(({ id, key, defaultVal }) => {
+      const switchEl = this.querySelector(`#${id}`);
+      const currentVal = this._config[key];
+      switchEl.checked = currentVal !== undefined ? currentVal : defaultVal;
+      switchEl.addEventListener('change', (e) => {
+        this._updateConfig(key, e.target.checked);
+      });
     });
   }
 
   _updateConfig(key, value) {
-    if (!this._config) return;
-
     const newConfig = { ...this._config };
     if (value === '' || value === undefined || value === null) {
       delete newConfig[key];
@@ -572,6 +567,7 @@ class FeedParserCardEditor extends HTMLElement {
     }
 
     this._config = newConfig;
+    
     const event = new CustomEvent('config-changed', {
       detail: { config: newConfig },
       bubbles: true,
