@@ -212,39 +212,48 @@ sensor:
 
 The integration includes a custom Lovelace card for displaying feeds beautifully.
 
-**Installation:**
+**Installation (HACS users):**
 
-1. Add the card resource to your Lovelace configuration:
+1. Go to **Settings** → **Dashboards** → **Resources** (click the 3-dot menu)
+2. Click **Add Resource**
+3. Enter the URL: `/local/community/feedparser/www/feedparser-card.js`
+4. Select **JavaScript Module**
+5. Click **Create**
+6. **Refresh your browser** (Ctrl+Shift+R or Cmd+Shift+R)
 
-   ```yaml
-   resources:
-     - url: /local/feedparser-card.js
-       type: module
-   ```
+**Installation (Manual install users):**
 
-   Or manually copy `www/feedparser-card.js` to your `www` folder.
+After restarting Home Assistant, the card auto-registers at `/feedparser/feedparser-card.js`. If it doesn't work, manually add the resource:
 
-2. Add the card to your dashboard:
-   ```yaml
-   type: custom:feedparser-card
-   entity: sensor.tech_headlines
-   title: Tech News
-   max_entries: 10
-   show_images: true
-   show_summary: true
-   show_date: true
-   ```
+1. Copy `custom_components/feedparser/www/feedparser-card.js` to your `www` folder
+2. Add resource: `/local/feedparser-card.js` as JavaScript Module
+
+**Add the card to your dashboard:**
+
+```yaml
+type: custom:feedparser-card
+entity: sensor.tech_headlines
+title: Tech News
+max_entries: 10
+show_images: true
+show_summary: true
+show_date: true
+compact: false
+show_refresh: true
+```
 
 **Card Options:**
 
-| Option         | Type    | Default      | Description                |
-| -------------- | ------- | ------------ | -------------------------- |
-| `entity`       | string  | **Required** | Feed sensor entity ID      |
-| `title`        | string  | Entity name  | Card title                 |
-| `max_entries`  | number  | All entries  | Maximum entries to display |
-| `show_images`  | boolean | `true`       | Show entry images          |
-| `show_summary` | boolean | `true`       | Show entry summaries       |
-| `show_date`    | boolean | `true`       | Show publication dates     |
+| Option         | Type    | Default      | Description                    |
+| -------------- | ------- | ------------ | ------------------------------ |
+| `entity`       | string  | **Required** | Feed sensor entity ID          |
+| `title`        | string  | Entity name  | Card title                     |
+| `max_entries`  | number  | All entries  | Maximum entries to display     |
+| `show_images`  | boolean | `true`       | Show entry images              |
+| `show_summary` | boolean | `true`       | Show entry summaries           |
+| `show_date`    | boolean | `true`       | Show publication dates         |
+| `compact`      | boolean | `false`      | Compact list view              |
+| `show_refresh` | boolean | `true`       | Show manual refresh button     |
 
 ### With list-card
 
